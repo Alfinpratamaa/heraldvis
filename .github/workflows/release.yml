@@ -28,8 +28,10 @@ jobs:
           mkdir -p heraldvis-linux-x86_64
           cp target/release/heraldvis heraldvis-linux-x86_64/
           cp config.example.toml heraldvis-linux-x86_64/config.toml
+          cp scripts/install.sh heraldvis-linux-x86_64/install.sh
           tar -czvf heraldvis-linux-x86_64.tar.gz -C heraldvis-linux-x86_64 .
-          ls -lh heraldvis-linux-x86_64.tar.gz
+          cp scripts/install.sh ./install.sh
+          ls -lh heraldvis-linux-x86_64.tar.gz install.sh
           sha256sum heraldvis-linux-x86_64.tar.gz || true
 
       - name: Publish GitHub Release
@@ -37,22 +39,40 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: Heraldvis ${{ github.ref_name }} — First Launch 🚀
-          files: heraldvis-linux-x86_64.tar.gz
+          files: |
+            heraldvis-linux-x86_64.tar.gz
+            install.sh
           generate_release_notes: true
           body: |
             ## Heraldvis ${{ github.ref_name }} — First Launch 🚀
 
-            Standalone binary Ubuntu x86_64 + config.toml.
+            > **Ubuntu only** — binary built on ubuntu-latest (libasound2). Other distros: use Docker or build from source.
 
-            ### Quick Start
+            ### Quick Start — 1 command (curl + bash)
+
             ```bash
-            tar -xzf heraldvis-linux-x86_64.tar.gz
-            ./heraldvis --check        # verify dispatcher
-            ./heraldvis --help
-            # 3 opsi konfigurasi (FR-5a): CLI flags > env > config.toml
-            HERALDVIS_ENDPOINT=https://api.example.com HERALDVIS_API_KEY=sk-xxx ./heraldvis
-            ./heraldvis --endpoint https://api.example.com --api-key sk-xxx
+            curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh | bash
+            # or via release asset:
+            # curl -fsSL https://github.com/Alfinpratamaa/heraldvis/releases/download/${{ github.ref_name }}/install.sh | bash
             ```
+
+            Script akan:
+            1. Download \`heraldvis-linux-x86_64.tar.gz\` dari rilis ini
+            2. Extract + \`chmod +x heraldvis\`
+            3. Prompt **Endpoint URL** (default \`http://127.0.0.1:8000\`) + **API Key** (opsional)
+            4. Tampilkan perintah run siap pakai + jalankan \`--check\`
+
+            ### Manual (tanpa script)
+
+            ```bash
+            curl -L -o heraldvis-linux-x86_64.tar.gz https://github.com/Alfinpratamaa/heraldvis/releases/download/${{ github.ref_name }}/heraldvis-linux-x86_64.tar.gz
+            tar -xzf heraldvis-linux-x86_64.tar.gz
+            ./heraldvis-linux-x86_64/heraldvis --check
+            ./heraldvis-linux-x86_64/heraldvis --endpoint https://api.example.com --api-key sk-xxx
+            ```
+
+            ### Config precedence (FR-5a)
+            \`--endpoint/--api-key\` > \`HERALDVIS_ENDPOINT/HERALDVIS_API_KEY\` > \`config.toml\` > \`127.0.0.1:8000\`
 
             ### What's Included
             - Tool-calling dispatcher (7 tools, whitelist sandbox)
