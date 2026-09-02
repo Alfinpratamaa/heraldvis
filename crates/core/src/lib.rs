@@ -34,6 +34,9 @@ pub enum ToolName {
     ExecuteCommand,
     NavigateBrowser,
     OpenBrowser,
+    PressKey,
+    TypeText,
+    TakeScreenshot,
 }
 
 /// Wrapper native Qwen3.8 chat template:
@@ -111,6 +114,21 @@ pub struct NavigateBrowserParams {
     pub browser: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PressKeyParams {
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeTextParams {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TakeScreenshotParams {
+    pub path: String,
+}
+
 impl std::fmt::Display for ToolName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -122,6 +140,9 @@ impl std::fmt::Display for ToolName {
             Self::ExecuteCommand => "execute_command",
             Self::NavigateBrowser => "navigate_browser",
             Self::OpenBrowser => "open_browser",
+            Self::PressKey => "press_key",
+            Self::TypeText => "type_text",
+            Self::TakeScreenshot => "take_screenshot",
         };
         write!(f, "{s}")
     }
@@ -188,6 +209,44 @@ impl ToolCall {
                 let v: serde_json::Value = self.arguments.clone();
                 if v.get("url").is_none() {
                     return Err(CoreError::Validation("missing field `url`".into()));
+                }
+                let url = v.get("url").and_then(|x| x.as_str()).unwrap_or("");
+                if url.trim().is_empty() {
+                    return Err(CoreError::Validation("url is empty".into()));
+                }
+                let lu = url.trim().to_ascii_lowercase();
+                if !(lu.starts_with("http://") || lu.starts_with("https://") || lu.starts_with("file://")) {
+                    return Err(CoreError::Validation("url must start with http://, https:// or file://".into()));
+                }
+            }
+            ToolName::PressKey => {
+                let p: PressKeyParams = serde_json::from_value(self.arguments.clone())
+                    .map_err(|e| CoreError::Validation(e.to_string()))?;
+                if p.key.trim().is_empty() {
+                    return Err(CoreError::Validation("key is empty".into()));
+                }
+                if p.key.len() > 32 {
+                    return Err(CoreError::Validation("key too long (max 32)".into()));
+                }
+            }
+            ToolName::TypeText => {
+                let p: TypeTextParams = serde_json::from_value(self.arguments.clone())
+                    .map_err(|e| CoreError::Validation(e.to_string()))?;
+                if p.text.is_empty() {
+                    return Err(CoreError::Validation("text is empty".into()));
+                }
+                if p.text.len() > 4096 {
+                    return Err(CoreError::Validation("text too long (max 4096)".into()));
+                }
+            }
+            ToolName::TakeScreenshot => {
+                let p: TakeScreenshotParams = serde_json::from_value(self.arguments.clone())
+                    .map_err(|e| CoreError::Validation(e.to_string()))?;
+                if p.path.trim().is_empty() {
+                    return Err(CoreError::Validation("path is empty".into()));
+                }
+                if !p.path.to_ascii_lowercase().ends_with(".png") {
+                    return Err(CoreError::Validation("path must end with .png".into()));
                 }
             }
         }

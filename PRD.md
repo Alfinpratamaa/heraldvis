@@ -167,6 +167,64 @@ Bahasa interaksi suara: **English only**.
 - Jika `api_key` tidak kosong, header `Authorization: Bearer <api_key>` otomatis disisipkan ke request HTTP SSE di `heraldvis-net` (`HeraldvisClient::chat_completions_stream` + `connect_ws`).
 - `cargo run -- --help` wajib mendokumentasikan kedua flag (`--endpoint`, `--api-key`).
 
+### FR-6: M6 Primitive Input, Surveillance & Autonomous Execution
+
+M6 menambah tiga primitif desktop + penguatan mode otonom berbuntut panjang (long-horizon) di atas M5. Semua perubahan tetap headless-friendly (fitur `automation` opsional) dan full-auto tanpa approval (FR-1a).
+
+#### FR-6a: Primitive Input & Surveillance (xdg-open + enigo + screenshot)
+
+1. **`navigate_browser` / `open_browser` -> `xdg-open` agnostik**
+   - Refactor `dispatcher::handle_navigate_browser` dari pemanggilan spesifik-browser menjadi `xdg-open <url>` di Linux (`open` di macOS fallback). Alasan: VPS menge-serve model lintas desktop; browser default user harus yang dibuka, bukan hardcode `chrome`/`firefox`.
+   - Validasi: `url` wajib non-empty, harus diawali `http://` atau `https://` atau `file://` — selain itu `CoreError::Validation` agar tidak dieksploitasi sebagai command injection via `sh -c`.
+   - Implementasi tetap `tokio::process::Command::new("xdg-open").arg(url).spawn()` (spawn-only, tidak block REPL). Log warn bila `spawn` gagal (headless WSL/no display).
+2. **`press_key` — synthetic key press (automation)**
+   - Schema: `{ "key": string }` — contoh `"Enter"`, `"Tab"`, `"Escape"`, `"ctrl+c"` (case-insensitive, mapping ke `enigo::Key`/`enigo::Direction` bila fitur `automation` aktif).
+   - Toggle config: `[tools] press_key = true` (default `true`; `false` -> whitelist block `tool disabled`).
+   - Handler: `dispatcher::handle_press_key(call) -> Result<String, DispatchError>` — di `#[cfg(feature = "automation")]` pakai `enigo::Enigo` + `Keyboard::key_click`/`Key::Layout`; di headless fallback kembalikan mock `"pressed key: {key} (automation mock — build without --features automation)"` agar `cargo test` tetap jalan di WSL.
+   - Validasi: `key` trimmed non-empty; maksimal 32 char untuk mencegah fuzz bloat.
+3. **`type_text` — synthetic typing**
+   - Schema: `{ "text": string }` — teks yang akan diketik ke window terfokus.
+   - Toggle config: `[tools] type_text = true` (default `true`).
+   - Handler: `dispatcher::handle_type_text(call)` — idem `press_key`, pakai `Keyboard::text` bila automation, mock `"typed 12 chars (mock)"` bila non-automation.
+   - Validasi: `text` non-empty, limit 4_096 chars per panggilan (FR Security: hindari paste bomb).
+4. **`take_screenshot` — screen capture**
+   - Schema: `{ "path": string }` — path file PNG tujuan; parent dir dibuat otomatis (FR reliability).
+   - Toggle config: `[tools] take_screenshot = true` (default `true`).
+   - Handler: `dispatcher::handle_take_screenshot(call).await` — bila automation / tool OS tersedia, coba `import -window root <path>` / `grim` / `gnome-screenshot`; fallback tulis placeholder PNG 1x1 minimal sehingga caller selalu mendapat file yang dapat diinspeksi; whitelist path dicek (`is_path_allowed`, sama seperti `read_file`/`write_file`), block bila `enabled=true` dan prefix tidak cocok. Mock branch tetap menulis placeholder agar tes deterministik di CI.
+   - Validasi: `path` non-empty, harus diakhiri `.png` (case-insensitive) — selain itu validation error.
+
+Semua tool baru wajib terdaftar di `core::ToolName`, `ToolCall::validate()`, `dispatcher::check_whitelist`, `dispatcher::dispatch` match, `config::ToolsConfig`, `cli::openai_tools_schema()`, dan `config.example.toml` `[tools]` agar LLM dapat menemukannya via `tool_choice:auto`.
+
+#### FR-6b: Extended ToolsConfig & Whitelist
+
+- `ToolsConfig` diperluas dengan tiga flag: `press_key`, `type_text`, `take_screenshot` (serde `default = true` untuk backward-compat config lama).
+- `WhitelistConfig` tetap jadi gate sekunder; `press_key`/`type_text` dicek `tool enabled`, `take_screenshot` dicek `enabled` + `is_path_allowed(path)` (prefix match FR-1). Full Access (`--full-access` atau `whitelist.enabled=false`) bypass semua.
+- Unit test dispatcher: `press_key` happy + empty-key validation, `type_text` mock success, `take_screenshot` whitelist block & mock write — semua tanpa fitur `automation` (CI headless).
+
+#### FR-6c: Autonomous Multi-Turn Loop (Long-Horizon Execution)
+
+- **`cli::run_chat_turn` refactor menjadi loop otonom hingga 10 iterasi** (jangan single-shot lagi):
+  ```rust
+  let mut messages: Vec<Value> = vec![json!({"role":"user","content":user_msg})];
+  for _ in 0..10 {
+      let payload = json!({"model":"qwen3.8","messages":messages,"stream":true,"tools":openai_tools_schema(),"tool_choice":"auto"});
+      let stream = client.chat_stream(payload).await?;
+      // kumpulkan delta.content + delta.tool_calls per index (ToolCallAccum)
+      if accums.is_empty() { // no tool_call
+          // final answer -> break
+      } else {
+          // dispatch semua tool_calls paralel-sequentially, push:
+          messages.push(json!({"role":"assistant","tool_calls":[...]}));
+          for resp in responses { messages.push(json!({"role":"tool","tool_call_id":id,"content":resp.output})) }
+          // lanjut iterasi berikutnya otomatis tanpa menunggu input user
+      }
+  }
+  ```
+- Tiap iterasi tetap streaming SSE -> sentence-split TTS enqueue (`VoicePipeline::split_sentences` + `placeholder_pcm_for_sentence`) dan `SessionLogger::log` per tool_response dengan `blocked_by_whitelist` flag (FR-4).
+- Stop condition: (a) `finish_reason != "tool_calls"` dan `accums.is_empty()` -> anggap jawaban final tercapai; (b) 10 iterasi tercapai -> log warn + break untuk hindari loop tak terbatas bila model ngulang tool.
+- Mapping `tool_name` string -> `ToolName` diperluas ke 10 varian (`press_key`, `type_text`, `take_screenshot` ditambah 7 lama); unknown tool -> warn + skip, tidak abort loop.
+- `cli::openai_tools_schema()` kini mengembalikan 10 tool definitions (agnostik browser + 3 primitif baru) sehingga `heraldvis --check` tetap validasi tanpa VPS.
+
 ### FR-5b: Automated Standalone Binary Release via CI/CD
 - Menyediakan alur build otomatis di GitHub Actions yang mengompilasi binary rilis Ubuntu x86_64 (`target/release/heraldvis`), mengemasnya bersama `config.example.toml`, dan mempublikasikannya ke GitHub Releases saat tag versi dibuat (misal `v0.1.0`) atau via pemicu manual (`workflow_dispatch`).
 - Workflow file: `.github/workflows/release.yml` — trigger `on: push: tags: ['v*']` + `workflow_dispatch`, job `ubuntu-latest`, steps: `actions/checkout@v4` → pasang Rust `stable` → `sudo apt-get update && sudo apt-get install -y libasound2-dev` → `cargo build --release --locked` → packaging `heraldvis-linux-x86_64` dir → `tar -czvf heraldvis-linux-x86_64.tar.gz` → publish via `softprops/action-gh-release@v2`.

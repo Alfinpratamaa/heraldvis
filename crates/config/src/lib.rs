@@ -44,6 +44,12 @@ pub struct ToolsConfig {
     pub execute_command: bool,
     #[serde(default = "default_true")]
     pub navigate_browser: bool,
+    #[serde(default = "default_true")]
+    pub press_key: bool,
+    #[serde(default = "default_true")]
+    pub type_text: bool,
+    #[serde(default = "default_true")]
+    pub take_screenshot: bool,
 }
 
 impl Default for ToolsConfig {
@@ -56,6 +62,9 @@ impl Default for ToolsConfig {
             git_operation: true,
             execute_command: true,
             navigate_browser: true,
+            press_key: true,
+            type_text: true,
+            take_screenshot: true,
         }
     }
 }

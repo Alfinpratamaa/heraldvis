@@ -195,14 +195,28 @@ fn openai_tools_schema() -> serde_json::Value {
         {"type":"function","function":{"name":"run_test","description":"Run test command","parameters":{"type":"object","properties":{"command":{"type":"string"},"workdir":{"type":"string"}},"required":["command"]}}},
         {"type":"function","function":{"name":"git_operation","description":"Git operation","parameters":{"type":"object","properties":{"command":{"type":"string"},"workdir":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["command"]}}},
         {"type":"function","function":{"name":"execute_command","description":"Execute shell command (whitelisted)","parameters":{"type":"object","properties":{"command":{"type":"string"},"workdir":{"type":"string"}},"required":["command"]}}},
-        {"type":"function","function":{"name":"navigate_browser","description":"Open browser URL","parameters":{"type":"object","properties":{"url":{"type":"string"},"browser":{"type":"string"}},"required":["url"]}}}
+        {"type":"function","function":{"name":"navigate_browser","description":"Open browser URL via xdg-open (agnostic)","parameters":{"type":"object","properties":{"url":{"type":"string"},"browser":{"type":"string"}},"required":["url"]}}},
+        {"type":"function","function":{"name":"press_key","description":"Press a single key (automation)","parameters":{"type":"object","properties":{"key":{"type":"string","description":"Key name e.g. Enter, Tab, Escape, a"}},"required":["key"]}}},
+        {"type":"function","function":{"name":"type_text","description":"Type text into focused window","parameters":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}}},
+        {"type":"function","function":{"name":"take_screenshot","description":"Capture screenshot to PNG path (whitelisted)","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Destination .png path"}},"required":["path"]}}}
     ])
 }
 
+#[allow(dead_code)]
 fn build_chat_payload(user_msg: &str) -> serde_json::Value {
     serde_json::json!({
         "model": "qwen3.8",
         "messages": [{"role":"user","content": user_msg}],
+        "stream": true,
+        "tools": openai_tools_schema(),
+        "tool_choice": "auto"
+    })
+}
+
+fn build_chat_payload_from_messages(messages: &[serde_json::Value]) -> serde_json::Value {
+    serde_json::json!({
+        "model": "qwen3.8",
+        "messages": messages,
         "stream": true,
         "tools": openai_tools_schema(),
         "tool_choice": "auto"
@@ -243,112 +257,125 @@ async fn run_chat_turn(
     logger: &mut SessionLogger,
     user_msg: &str,
 ) -> anyhow::Result<()> {
-    let payload = build_chat_payload(user_msg);
-    let started = now_ms();
-    info!(msg=%user_msg, "chat_stream → VPS");
+    // FR-6c: autonomous multi-turn loop up to 10 iterations
+    let mut messages: Vec<serde_json::Value> = vec![serde_json::json!({"role":"user","content": user_msg})];
+    for iter in 0..10 {
+        let payload = build_chat_payload_from_messages(&messages);
+        let started = now_ms();
+        info!(iter=%iter, msg=%user_msg, "chat_stream → VPS (autonomous loop)");
 
-    let mut stream = match client.chat_stream(payload).await {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(error=%e, "VPS chat_stream failed — fallback text (PRD §12), staying in REPL");
-            println!("[offline fallback] VPS unreachable ({e}). Try direct ToolCall JSON or check endpoint {}.", client.config().endpoint);
-            return Ok(());
+        let mut stream = match client.chat_stream(payload).await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error=%e, "VPS chat_stream failed — fallback text (PRD §12), staying in REPL");
+                println!("[offline fallback] VPS unreachable ({e}). Try direct ToolCall JSON or check endpoint {}.", client.config().endpoint);
+                return Ok(());
+            }
+        };
+
+        let mut text_buf = String::new();
+        let mut sentence_buf = String::new();
+        let mut accums: HashMap<u32, ToolCallAccum> = HashMap::new();
+        let mut finish_reason: Option<String> = None;
+
+        if pipeline.status() == VoiceStatus::Listening || pipeline.status() == VoiceStatus::Idle {
+            info!("LLM thinking (streaming) iter={}", iter);
         }
-    };
 
-    let mut text_buf = String::new();
-    let mut sentence_buf = String::new();
-    let mut accums: HashMap<u32, ToolCallAccum> = HashMap::new();
-    let mut finish_reason: Option<String> = None;
-
-    // Mark thinking
-    if pipeline.status() == VoiceStatus::Listening || pipeline.status() == VoiceStatus::Idle {
-        // pipeline has no set_status; simulate via enqueue? we keep status Idle→Thinking via log
-        info!("LLM thinking (streaming)");
-    }
-
-    while let Some(ev) = stream.next().await {
-        match ev {
-            Ok(SseEvent::Chunk(chunk)) => {
-                for choice in chunk.choices {
-                    if let Some(fr) = choice.finish_reason {
-                        finish_reason = Some(fr);
-                    }
-                    if let Some(content) = choice.delta.content {
-                        text_buf.push_str(&content);
-                        sentence_buf.push_str(&content);
-                        print!("{content}");
-                        let _ = std::io::Write::flush(&mut std::io::stdout());
-                        // per-sentence TTS queue (PRD §14.2 split, §14.4 time-to-first-audio <300ms)
-                        let sentences = VoicePipeline::split_sentences(&sentence_buf);
-                        if sentences.len() > 1 || (finish_reason.is_some() && !sentence_buf.trim().is_empty()) {
-                            // keep last as carry if not finished, otherwise flush all
-                            let (to_enqueue, carry) = if finish_reason.is_some() {
-                                (sentences.clone(), String::new())
-                            } else {
-                                let n = sentences.len() - 1;
-                                (sentences[..n].to_vec(), sentences[n].clone())
-                            };
-                            for sentence in &to_enqueue {
-                                let pcm = placeholder_pcm_for_sentence(sentence);
-                                let before = pipeline.playback_len();
-                                pipeline.enqueue_pcm(pcm);
-                                info!(sentence=%sentence, before, after=%pipeline.playback_len(), "TTS sentence enqueued");
-                            }
-                            sentence_buf = carry;
+        while let Some(ev) = stream.next().await {
+            match ev {
+                Ok(SseEvent::Chunk(chunk)) => {
+                    for choice in chunk.choices {
+                        if let Some(fr) = choice.finish_reason {
+                            finish_reason = Some(fr);
                         }
-                    }
-                    if let Some(tcs) = choice.delta.tool_calls {
-                        for tc in tcs {
-                            let idx = tc.index.unwrap_or(0);
-                            let entry = accums.entry(idx).or_insert_with(|| ToolCallAccum {
-                                index: idx,
-                                ..Default::default()
-                            });
-                            if let Some(id) = tc.id {
-                                entry.id = Some(id);
-                            }
-                            if let Some(f) = tc.function {
-                                if let Some(name) = f.name {
-                                    entry.name = Some(name);
+                        if let Some(content) = choice.delta.content {
+                            text_buf.push_str(&content);
+                            sentence_buf.push_str(&content);
+                            print!("{content}");
+                            let _ = std::io::Write::flush(&mut std::io::stdout());
+                            let sentences = VoicePipeline::split_sentences(&sentence_buf);
+                            if sentences.len() > 1 || (finish_reason.is_some() && !sentence_buf.trim().is_empty()) {
+                                let (to_enqueue, carry) = if finish_reason.is_some() {
+                                    (sentences.clone(), String::new())
+                                } else {
+                                    let n = sentences.len() - 1;
+                                    (sentences[..n].to_vec(), sentences[n].clone())
+                                };
+                                for sentence in &to_enqueue {
+                                    let pcm = placeholder_pcm_for_sentence(sentence);
+                                    let before = pipeline.playback_len();
+                                    pipeline.enqueue_pcm(pcm);
+                                    info!(sentence=%sentence, before, after=%pipeline.playback_len(), "TTS sentence enqueued");
                                 }
-                                if let Some(args) = f.arguments {
-                                    entry.args_buf.push_str(&args);
+                                sentence_buf = carry;
+                            }
+                        }
+                        if let Some(tcs) = choice.delta.tool_calls {
+                            for tc in tcs {
+                                let idx = tc.index.unwrap_or(0);
+                                let entry = accums.entry(idx).or_insert_with(|| ToolCallAccum {
+                                    index: idx,
+                                    ..Default::default()
+                                });
+                                if let Some(id) = tc.id {
+                                    entry.id = Some(id);
+                                }
+                                if let Some(f) = tc.function {
+                                    if let Some(name) = f.name {
+                                        entry.name = Some(name);
+                                    }
+                                    if let Some(args) = f.arguments {
+                                        entry.args_buf.push_str(&args);
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            Ok(SseEvent::Done) => break,
-            Ok(SseEvent::Comment(_)) => {}
-            Err(e) => {
-                warn!(error=%e, "SSE parse error");
-                break;
+                Ok(SseEvent::Done) => break,
+                Ok(SseEvent::Comment(_)) => {}
+                Err(e) => {
+                    warn!(error=%e, "SSE parse error");
+                    break;
+                }
             }
         }
-        // barge-in check: if pipeline Speaking and mock VAD detects speech, interrupt
-        // In text mode we simulate by checking if pipeline playback grew and user typed? no-op.
-        // Real voice mode feeds mic frames via process_resampled_frames in WS task.
-    }
-    println!();
+        println!();
 
-    // flush remaining sentence
-    if !sentence_buf.trim().is_empty() {
-        for sentence in VoicePipeline::split_sentences(&sentence_buf) {
-            let pcm = placeholder_pcm_for_sentence(&sentence);
-            pipeline.enqueue_pcm(pcm);
+        if !sentence_buf.trim().is_empty() {
+            for sentence in VoicePipeline::split_sentences(&sentence_buf) {
+                let pcm = placeholder_pcm_for_sentence(&sentence);
+                pipeline.enqueue_pcm(pcm);
+            }
         }
-    }
 
-    let latency = now_ms().saturating_sub(started);
-    if !text_buf.trim().is_empty() {
-        info!(latency_ms=%latency, chars=%text_buf.len(), "LLM text complete");
-    }
+        let latency = now_ms().saturating_sub(started);
+        if !text_buf.trim().is_empty() {
+            info!(latency_ms=%latency, chars=%text_buf.len(), "LLM text complete iter={}", iter);
+        }
 
-    // Dispatch accumulated tool calls
-    if !accums.is_empty() {
-        info!(count=%accums.len(), "dispatching streamed tool_calls");
+        if accums.is_empty() {
+            if text_buf.trim().is_empty() && finish_reason.is_none() {
+                warn!("empty LLM response (no content, no tool_calls) iter={}", iter);
+            }
+            // no tool_calls => final answer reached, break loop
+            // push assistant text to messages for completeness
+            if !text_buf.trim().is_empty() {
+                messages.push(serde_json::json!({"role":"assistant","content": text_buf}));
+            }
+            // drain playback mock
+            if pipeline.playback_len() > 0 {
+                let drained = pipeline.drain_playback(8000);
+                info!(drained=%drained.len(), remaining=%pipeline.playback_len(), "playback drained (headless mock) iter={}", iter);
+            }
+            break;
+        }
+
+        // dispatch accumulated tool calls
+        info!(count=%accums.len(), iter=%iter, "dispatching streamed tool_calls");
+        let mut tool_call_ids: Vec<(String, String, serde_json::Value)> = Vec::new();
+        let mut tool_results: Vec<(String, String)> = Vec::new();
         for (_, accum) in accums {
             let name_str = accum.name.clone().unwrap_or_default();
             let tool_name = match name_str.as_str() {
@@ -359,6 +386,9 @@ async fn run_chat_turn(
                 "git_operation" => heraldvis_core::ToolName::GitOperation,
                 "execute_command" => heraldvis_core::ToolName::ExecuteCommand,
                 "navigate_browser" | "open_browser" => heraldvis_core::ToolName::NavigateBrowser,
+                "press_key" => heraldvis_core::ToolName::PressKey,
+                "type_text" => heraldvis_core::ToolName::TypeText,
+                "take_screenshot" => heraldvis_core::ToolName::TakeScreenshot,
                 other => {
                     warn!(tool=%other, "unknown tool from model, skipping");
                     continue;
@@ -372,30 +402,43 @@ async fn run_chat_turn(
                     serde_json::json!({})
                 })
             };
+            let cid = accum.id.clone().unwrap_or_else(|| format!("call_{iter}_{}", tool_call_ids.len()));
             let call = ToolCall {
                 name: tool_name.clone(),
-                arguments: args,
-                id: accum.id.clone(),
+                arguments: args.clone(),
+                id: Some(cid.clone()),
             };
             let t0 = now_ms();
             let resp = dispatcher.dispatch(&call).await;
             let is_blocked = matches!(resp.result, ToolResult::Error { ref error } if error.contains("whitelist") || error.contains("blocked"));
             let dt = now_ms().saturating_sub(t0);
-            info!(tool=%tool_name, latency_ms=%dt, blocked=%is_blocked, "tool_response");
+            info!(tool=%tool_name, latency_ms=%dt, blocked=%is_blocked, "tool_response iter={}", iter);
             println!("{}", serde_json::to_string(&resp).unwrap_or_default());
-            // FR-4 log
-            logger.log(Some(call), Some(resp), is_blocked);
+            logger.log(Some(call), Some(resp.clone()), is_blocked);
+            let result_str = match resp.result {
+                ToolResult::Success { output } => output,
+                ToolResult::Error { error } => format!("error: {error}"),
+            };
+            tool_call_ids.push((cid.clone(), name_str.clone(), args));
+            tool_results.push((cid, result_str));
         }
-    } else if text_buf.trim().is_empty() && finish_reason.is_none() {
-        warn!("empty LLM response (no content, no tool_calls)");
+        // push assistant tool_calls + tool results to messages for next iteration
+        let assistant_calls: Vec<serde_json::Value> = tool_call_ids
+            .iter()
+            .map(|(id, name, args)| serde_json::json!({"id": id, "type": "function", "function": {"name": name, "arguments": serde_json::to_string(args).unwrap_or_default()}}))
+            .collect();
+        messages.push(serde_json::json!({"role":"assistant","tool_calls": assistant_calls, "content": text_buf}));
+        for (id, content) in tool_results {
+            messages.push(serde_json::json!({"role":"tool","tool_call_id": id, "content": content}));
+        }
+        if pipeline.playback_len() > 0 {
+            let drained = pipeline.drain_playback(8000);
+            info!(drained=%drained.len(), remaining=%pipeline.playback_len(), "playback drained iter={}", iter);
+        }
+        if iter == 9 {
+            warn!("autonomous loop reached 10 iterations — breaking to avoid infinite loop");
+        }
     }
-
-    // Simulate playback drain in headless (real cpal drains via callback)
-    if pipeline.playback_len() > 0 {
-        let drained = pipeline.drain_playback(8000);
-        info!(drained=%drained.len(), remaining=%pipeline.playback_len(), "playback drained (headless mock)");
-    }
-
     Ok(())
 }
 
