@@ -258,27 +258,28 @@ impl SileroVad {
     }
 
     fn predict(&mut self, frame: &[f32; 512], threshold: f32) -> Result<VadFrameResult, VoiceError> {
-        use ort::inputs;
-        // Silero v5 inputs: input [1,512], state [2,1,128], sr [1]
-        let input_arr = ndarray::Array2::from_shape_vec((1, 512), frame.to_vec())
+        use ort::{inputs, value::Tensor};
+        // Silero v5 inputs: input [1,512], state [2,1,128], sr [1] — ort 2.0-rc.13 needs Tensor wrapper
+        let input_tensor = Tensor::from_array((vec![1i64, 512], frame.to_vec()))
             .map_err(|e| VoiceError::Vad(e.to_string()))?;
-        let state_arr = ndarray::Array3::from_shape_vec((2, 1, 128), self.state.clone())
+        let state_tensor = Tensor::from_array((vec![2i64, 1, 128], self.state.clone()))
             .map_err(|e| VoiceError::Vad(e.to_string()))?;
-        let sr_arr = ndarray::arr1(&[self.sr]);
+        let sr_tensor = Tensor::from_array((vec![1i64], vec![self.sr]))
+            .map_err(|e| VoiceError::Vad(e.to_string()))?;
         let outputs = self
             .session
-            .run(inputs!["input" => input_arr, "state" => state_arr, "sr" => sr_arr].unwrap())
+            .run(inputs!["input" => input_tensor, "state" => state_tensor, "sr" => sr_tensor])
             .map_err(|e| VoiceError::Vad(e.to_string()))?;
-        // output: prob [1,1], stateN [2,1,128]
+        // output: prob [1,1], stateN [2,1,128] — try_extract_tensor returns (&Shape, &[f32]) in rc.13
         let prob: f32 = outputs["output"]
             .try_extract_tensor::<f32>()
             .map_err(|e| VoiceError::Vad(e.to_string()))?
-            .iter()
-            .next()
+            .1
+            .first()
             .copied()
             .unwrap_or(0.0);
-        if let Ok(state_n) = outputs["stateN"].try_extract_tensor::<f32>() {
-            self.state = state_n.iter().copied().collect();
+        if let Ok((_, state_data)) = outputs["stateN"].try_extract_tensor::<f32>() {
+            self.state = state_data.to_vec();
         }
         Ok(VadFrameResult {
             prob,
@@ -536,7 +537,7 @@ impl VoicePipeline {
         let device = if let Some(name) = &self.config.input_device {
             host.input_devices()
                 .map_err(|e| VoiceError::Device(e.to_string()))?
-                .find(|d| d.name().map(|n| n == *name).unwrap_or(false))
+                .find(|d| d.to_string() == *name)
                 .ok_or_else(|| VoiceError::Device(format!("input device not found: {name}")))?
         } else {
             host.default_input_device()
@@ -545,25 +546,25 @@ impl VoicePipeline {
         let supported = device
             .default_input_config()
             .map_err(|e| VoiceError::Device(e.to_string()))?;
-        info!(device=?device.name(), config=?supported, "cpal input opened");
+        info!(device=%device.to_string(), config=?supported, "cpal input opened");
         // We create a minimal stream that just logs; real pipeline would channel to VAD.
         // Keep stream alive in _capture_stream so it doesn't drop.
         let err_fn = |err| warn!(error=?err, "cpal input error");
         let stream = match supported.sample_format() {
             cpal::SampleFormat::F32 => device.build_input_stream(
-                &supported.into(),
+                supported.config(),
                 |_data: &[f32], _| {},
                 err_fn,
                 None,
             ).map_err(|e| VoiceError::Device(e.to_string()))?,
             cpal::SampleFormat::I16 => device.build_input_stream(
-                &supported.into(),
+                supported.config(),
                 |_data: &[i16], _| {},
                 err_fn,
                 None,
             ).map_err(|e| VoiceError::Device(e.to_string()))?,
             cpal::SampleFormat::U16 => device.build_input_stream(
-                &supported.into(),
+                supported.config(),
                 |_data: &[u16], _| {},
                 err_fn,
                 None,

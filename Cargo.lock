@@ -1795,7 +1795,7 @@ dependencies = [
  "futures-util",
  "heraldvis-core",
  "hound",
- "ndarray",
+ "ndarray 0.16.1",
  "ort",
  "rubato",
  "tokio",
@@ -2463,6 +2463,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndarray"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
+dependencies = [
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
+]
+
+[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2998,8 +3013,10 @@ version = "2.0.0-rc.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4336a1e2b38848325241c72889086886004e589b7c74f335e60a8e8db5138a0b"
 dependencies = [
+ "ndarray 0.17.2",
  "ort-sys",
  "smallvec",
+ "tracing",
  "ureq",
 ]
 

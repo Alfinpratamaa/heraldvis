@@ -152,6 +152,59 @@ impl std::fmt::Display for ConfigError {
 }
 impl std::error::Error for ConfigError {}
 
+/// Resolve koneksi dengan precedence FR-5a: CLI > env > config > default.
+///
+/// - `cli_endpoint`/`cli_api_key`: nilai dari flag `--endpoint`/`--api-key` (jika ada).
+/// - Env: `HERALDVIS_ENDPOINT` / `HERALDVIS_API_KEY` (trimmed, non-empty).
+/// - Fallback: `config.endpoint` → `http://127.0.0.1:8000` jika kosong.
+#[must_use]
+pub fn resolve_endpoint(
+    cli_endpoint: Option<String>,
+    config: &AppConfig,
+) -> String {
+    cli_endpoint
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::var("HERALDVIS_ENDPOINT")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| {
+            let c = config.endpoint.trim().to_string();
+            if c.is_empty() {
+                default_endpoint()
+            } else {
+                c
+            }
+        })
+}
+
+/// Resolve `api_key` dengan precedence FR-5a: CLI > env > config (None jika kosong).
+#[must_use]
+pub fn resolve_api_key(
+    cli_api_key: Option<String>,
+    config: &AppConfig,
+) -> Option<String> {
+    cli_api_key
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::var("HERALDVIS_API_KEY")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            config
+                .api_key
+                .clone()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
 impl AppConfig {
     /// Parse config dari string TOML.
     ///
@@ -212,5 +265,39 @@ mod tests {
         assert!(!cfg.is_path_allowed("/etc/passwd"));
         assert!(cfg.is_command_allowed("cargo test"));
         assert!(!cfg.is_command_allowed("rm -rf /"));
+    }
+
+    #[test]
+    fn resolve_precedence_cli_over_env_over_config() {
+        let mut cfg = AppConfig::default();
+        cfg.endpoint = "http://config:8000".into();
+        cfg.api_key = Some("cfg-key".into());
+        // env should be overridden by cli
+        std::env::set_var("HERALDVIS_ENDPOINT", "http://env:8000");
+        std::env::set_var("HERALDVIS_API_KEY", "env-key");
+        let ep = resolve_endpoint(Some("http://cli:8000".into()), &cfg);
+        assert_eq!(ep, "http://cli:8000");
+        let key = resolve_api_key(Some("cli-key".into()), &cfg);
+        assert_eq!(key.as_deref(), Some("cli-key"));
+        // env wins when cli None
+        let ep2 = resolve_endpoint(None, &cfg);
+        assert_eq!(ep2, "http://env:8000");
+        let key2 = resolve_api_key(None, &cfg);
+        assert_eq!(key2.as_deref(), Some("env-key"));
+        std::env::remove_var("HERALDVIS_ENDPOINT");
+        std::env::remove_var("HERALDVIS_API_KEY");
+        // config wins when env absent
+        let ep3 = resolve_endpoint(None, &cfg);
+        assert_eq!(ep3, "http://config:8000");
+        let key3 = resolve_api_key(None, &cfg);
+        assert_eq!(key3.as_deref(), Some("cfg-key"));
+        // fallback default when all empty
+        let mut empty = AppConfig::default();
+        empty.endpoint = String::new();
+        empty.api_key = None;
+        let ep4 = resolve_endpoint(None, &empty);
+        assert_eq!(ep4, "http://127.0.0.1:8000");
+        let key4 = resolve_api_key(None, &empty);
+        assert!(key4.is_none());
     }
 }

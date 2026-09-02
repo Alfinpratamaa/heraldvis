@@ -31,6 +31,43 @@ fn net_config_from_app(cfg: &AppConfig) -> NetConfig {
     }
 }
 
+fn parse_cli_overrides() -> (Option<String>, Option<String>) {
+    let args: Vec<String> = std::env::args().collect();
+    let mut endpoint: Option<String> = None;
+    let mut api_key: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--endpoint" if i + 1 < args.len() => {
+                endpoint = Some(args[i + 1].clone());
+                i += 2;
+                continue;
+            }
+            s if s.starts_with("--endpoint=") => {
+                endpoint = Some(s.trim_start_matches("--endpoint=").to_string());
+            }
+            "--api-key" if i + 1 < args.len() => {
+                api_key = Some(args[i + 1].clone());
+                i += 2;
+                continue;
+            }
+            s if s.starts_with("--api-key=") => {
+                api_key = Some(s.trim_start_matches("--api-key=").to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (endpoint, api_key)
+}
+
+fn apply_config_precedence(mut cfg: AppConfig) -> AppConfig {
+    let (cli_ep, cli_key) = parse_cli_overrides();
+    cfg.endpoint = heraldvis_config::resolve_endpoint(cli_ep, &cfg);
+    cfg.api_key = heraldvis_config::resolve_api_key(cli_key, &cfg);
+    cfg
+}
+
 fn voice_config_from_app(cfg: &AppConfig) -> VoiceConfig {
     // AppConfig.voice currently holds stt/tts model names; map to VoiceConfig defaults.
     // VAD model path can be overridden via env HERALDVIS_VAD_MODEL for headless tests.
@@ -355,20 +392,28 @@ Usage:
   heraldvis --check                  # dispatcher self-test (no VPS)
   heraldvis --gui                    # floating overlay (needs display+gui feature)
   heraldvis --voice                  # force voice mode (start capture)
-  heraldvis --endpoint URL           # override VPS endpoint
+  heraldvis --endpoint URL           # override VPS endpoint (FR-5a, precedence 1)
+  heraldvis --api-key KEY            # override API key (FR-5a, precedence 1)
+  heraldvis --endpoint URL --api-key KEY  # both overrides together
 
 REPL:
   - ToolCall JSON per line → dispatch: {{\"name\":\"write_file\",\"arguments\":{{\"path\":\"/tmp/heraldvis/hi.txt\",\"content\":\"hi\"}}}}
   - Plain text → LLM chat_stream → auto tool dispatch + sentence TTS queue
   - exit / quit to leave
 
-Config: config.toml (or config.example.toml), env HERALDVIS_VAD_MODEL, --endpoint"
+Config precedence (FR-5a, highest→lowest):
+  1. CLI flags: --endpoint / --api-key
+  2. Env vars: HERALDVIS_ENDPOINT / HERALDVIS_API_KEY
+  3. config.toml (or config.example.toml)
+  4. Fallback default: http://127.0.0.1:8000
+
+Other env: HERALDVIS_VAD_MODEL (override VAD ONNX path)"
     );
 }
 
 async fn run_check() -> anyhow::Result<()> {
-    let cfg = load_config();
-    info!(endpoint = %cfg.endpoint, mode = ?cfg.mode, "config loaded (check mode)");
+    let cfg = apply_config_precedence(load_config());
+    info!(endpoint = %cfg.endpoint, mode = ?cfg.mode, "config loaded (check mode, FR-5a resolved)");
     let d = Dispatcher::new(&cfg);
     let dummy = ToolCall {
         name: heraldvis_core::ToolName::ExecuteCommand,
@@ -395,15 +440,12 @@ async fn run_check() -> anyhow::Result<()> {
 
 async fn run_headless() -> anyhow::Result<()> {
     let mut cfg = load_config();
-    // CLI overrides (PRD FR-5)
+    // FR-5a precedence: CLI > env > config > default
+    cfg = apply_config_precedence(cfg);
+    // --voice is not part of FR-5a but still overrides mode
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--voice") {
         cfg.mode = heraldvis_config::AppMode::Voice;
-    }
-    for w in args.windows(2) {
-        if w[0] == "--endpoint" {
-            cfg.endpoint.clone_from(&w[1]);
-        }
     }
 
     let net_cfg = net_config_from_app(&cfg);
@@ -495,7 +537,7 @@ async fn run_gui() -> anyhow::Result<()> {
             .with_title("Heraldvis — Jarvis Overlay (M5)"),
         ..Default::default()
     };
-    let mut cfg = load_config();
+    let mut cfg = apply_config_precedence(load_config());
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--voice") {
         cfg.mode = heraldvis_config::AppMode::Voice;
@@ -565,8 +607,7 @@ impl HeraldvisApp {
             pipeline,
             status: "idle".into(),
             transcript: format!(
-                "Heraldvis M5 — full-duplex ready.\nEndpoint: {{}}\nMode hint: {mode_hint}\nType chat or ToolCall JSON in headless; here use buttons.\n",
-                String::new()
+                "Heraldvis M5 — full-duplex ready.\nMode hint: {mode_hint}\nType chat or ToolCall JSON in headless; here use buttons.\n"
             ),
             minimized: false,
             chat_input: String::new(),
@@ -585,11 +626,11 @@ impl HeraldvisApp {
 
 #[cfg(feature = "gui")]
 impl eframe::App for HeraldvisApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Update status string from pipeline
         self.status = format!("{:?}", self.pipeline.status());
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // Draggable header
             let header = ui.horizontal(|ui| {
                 let resp = ui.label(
@@ -610,10 +651,10 @@ impl eframe::App for HeraldvisApp {
                             .color(self.status_color()),
                     );
                 });
-                resp.response
+                resp
             });
-            if header.response.interact(egui::Sense::drag()).dragged() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            if header.inner.interact(egui::Sense::drag()).dragged() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
             }
             ui.separator();
             if self.minimized {

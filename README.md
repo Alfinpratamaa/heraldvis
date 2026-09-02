@@ -91,9 +91,44 @@ cargo check --workspace
 cargo test --workspace
 ```
 
-## Konfigurasi (FR-5)
+## Konfigurasi (FR-5 / FR-5a)
 
 Copy `config.example.toml` → `config.toml` dan sesuaikan `endpoint` VPS vLLM/SGLang (`/v1/chat/completions` streaming) dan `whitelist`. Whitelist `allowed_commands` sudah diperluas untuk dataset linux-command 8700 sampel — persempit lagi untuk production (FR-1a full-auto tanpa approval gate, Safety §13.5).
+
+**Precedence FR-5a (highest → lowest):** `CLI flags > env vars > config.toml > fallback default`
+
+- `endpoint`: `--endpoint <URL>` > `HERALDVIS_ENDPOINT` > `config.toml:endpoint` > `http://127.0.0.1:8000`
+- `api_key`: `--api-key <KEY>` > `HERALDVIS_API_KEY` > `config.toml:api_key` > (none)
+- Jika `api_key` tidak kosong, `heraldvis-net` otomatis kirim `Authorization: Bearer <api_key>` di SSE + WS.
+
+## Menjalankan Binary Rilis (Ubuntu Desktop) — FR-5b
+
+Download artifact dari GitHub Releases (`heraldvis-linux-x86_64.tar.gz`) atau build lokal `cargo build --release --locked`.
+
+```bash
+tar -xzvf heraldvis-linux-x86_64.tar.gz
+chmod +x heraldvis
+
+# Opsi 1: Export Environment Variables di Bash
+# (precedence 2 — override config.toml)
+export HERALDVIS_ENDPOINT="http://129.212.186.196:8000"
+export HERALDVIS_API_KEY="opsional_token"  # kosongkan jika VPS tanpa auth
+./heraldvis
+./heraldvis --check            # self-test tanpa VPS
+
+# Opsi 2: Menggunakan CLI Flags Langsung
+# (precedence 1 — override env + config)
+./heraldvis --endpoint "http://129.212.186.196:8000" --api-key "opsional_token"
+./heraldvis --endpoint "http://129.212.186.196:8000" --check
+
+# Opsi 3: Menggunakan config.toml
+# (precedence 3)
+cp config.toml ./config.toml  # edit endpoint/api_key di file
+./heraldvis
+```
+
+> Release workflow: `.github/workflows/release.yml` — trigger `push tag v*` atau `workflow_dispatch`, build `ubuntu-latest` (`libasound2-dev` + `cargo build --release --locked`), packaging `heraldvis` + `config.toml` → `heraldvis-linux-x86_64.tar.gz` via `softprops/action-gh-release@v2`.
+> `config.toml` di artifact adalah copy dari `config.example.toml` — ganti `endpoint` ke VPS aktif setelah extract.
 
 ## Roadmap
 

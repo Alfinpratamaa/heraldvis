@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package artifact
+        run: |
+          mkdir -p heraldvis-linux-x86_64
+          cp target/release/heraldvis heraldvis-linux-x86_64/
+          cp config.example.toml heraldvis-linux-x86_64/config.toml
+          tar -czvf heraldvis-linux-x86_64.tar.gz -C heraldvis-linux-x86_64 .
+          ls -lh heraldvis-linux-x86_64.tar.gz
+          sha256sum heraldvis-linux-x86_64.tar.gz || true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: heraldvis-linux-x86_64.tar.gz
+          generate_release_notes: true

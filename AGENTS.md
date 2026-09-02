@@ -49,6 +49,7 @@ Example ToolCall JSON for REPL:
 
 - Dispatcher is full-auto, no approval gate (FR-1a). Safety = `whitelist` prefix match on `path` and `command` + per-tool `enabled` toggle. When adding tools, update both `core::ToolName` and `dispatcher::Dispatcher::check_whitelist`.
 - Generated/locked artifacts: `target/` is ignored; never commit `config.toml`/`*.wav`/`*.onnx`. No CI workflows or `opencode.json` in this repo — `README.md` is the executable setup reference if docs conflict with PRD.
+- **PROGRESS_LOG dual sync (Wajib):** setiap update `PROGRES_LOG.md` (repo, satu S) / `PROGRESS_LOG.md` (dua S) di repo **wajib** juga di-mirror ke path Windows host `/mnt/d/Users/muhamad.a.pratama/Downloads/PROGRESS_LOG.md` (WSL mount D:). File host itu dipakai untuk backup/portofolio di luar WSL. Jika path tidak ada (mis. run di VPS murni), skip dengan warning — jangan fail task. Sinkronisasi = `cp` setelah edit, lalu verifikasi `diff` atau `wc -l` sama.
 
 <!-- antislop:start -->
 ## antislop

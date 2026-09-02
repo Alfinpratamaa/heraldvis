@@ -149,6 +149,29 @@ Bahasa interaksi suara: **English only**.
 ### FR-5: Konfigurasi
 - File config (`config.toml`) untuk: alamat VPS/endpoint, pilihan tool yang aktif, path yang di-whitelist, pilihan voice (STT/TTS model), mode (text-only vs voice).
 
+### FR-5a: Multi-Tier Configuration & Precedence Hierarchy
+- Konfigurasi koneksi (khususnya `endpoint` dan `api_key`) harus mendukung resolusi berlapis dengan urutan prioritas (*highest to lowest*):
+  1. **Command Line Flags**: `--endpoint <URL>` dan `--api-key <KEY>`
+  2. **Environment Variables**: `HERALDVIS_ENDPOINT` dan `HERALDVIS_API_KEY`
+  3. **Configuration File**: nilai pada `config.toml`
+  4. **Fallback Default**: `http://127.0.0.1:8000`
+- Implementasi resolver di `crates/cli` (atau `crates/config` helper) wajib mengikuti pola:
+  ```rust
+  let endpoint = cli_endpoint
+      .or_else(|| std::env::var("HERALDVIS_ENDPOINT").ok())
+      .unwrap_or_else(|| config.endpoint.clone());
+  let api_key = cli_api_key
+      .or_else(|| std::env::var("HERALDVIS_API_KEY").ok())
+      .or_else(|| config.api_key.clone());
+  ```
+- Jika `api_key` tidak kosong, header `Authorization: Bearer <api_key>` otomatis disisipkan ke request HTTP SSE di `heraldvis-net` (`HeraldvisClient::chat_completions_stream` + `connect_ws`).
+- `cargo run -- --help` wajib mendokumentasikan kedua flag (`--endpoint`, `--api-key`).
+
+### FR-5b: Automated Standalone Binary Release via CI/CD
+- Menyediakan alur build otomatis di GitHub Actions yang mengompilasi binary rilis Ubuntu x86_64 (`target/release/heraldvis`), mengemasnya bersama `config.example.toml`, dan mempublikasikannya ke GitHub Releases saat tag versi dibuat (misal `v0.1.0`) atau via pemicu manual (`workflow_dispatch`).
+- Workflow file: `.github/workflows/release.yml` — trigger `on: push: tags: ['v*']` + `workflow_dispatch`, job `ubuntu-latest`, steps: `actions/checkout@v4` → pasang Rust `stable` → `sudo apt-get update && sudo apt-get install -y libasound2-dev` → `cargo build --release --locked` → packaging `heraldvis-linux-x86_64` dir → `tar -czvf heraldvis-linux-x86_64.tar.gz` → publish via `softprops/action-gh-release@v2`.
+- Artifact berisi `heraldvis` binary + `config.toml` (copy dari `config.example.toml`).
+
 ---
 
 ## 8. Non-Functional Requirements
