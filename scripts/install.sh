@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# === Safe defaults for set -u (init before any use) ===
+ENDPOINT="http://127.0.0.1:8000"
+API_KEY=""
+INPUT_EP=""
+INPUT_KEY=""
+RUN_CHECK="Y"
+
 # Heraldvis — Ubuntu only quick installer
-# 1-command (preferred, keeps tty): bash <(curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh)
-# fallback (also works now with /dev/tty): curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh | bash
-# or: curl -fsSL https://github.com/Alfinpratamaa/heraldvis/releases/download/v0.1.0/install.sh | bash
+# Preferred (keeps tty): bash <(curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh)
+# Fallback (pipe, now also works via /dev/tty): curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh | bash
+# Release asset: curl -fsSL https://github.com/Alfinpratamaa/heraldvis/releases/download/v0.1.0/install.sh | bash
 
 REPO="Alfinpratamaa/heraldvis"
 TAG="v0.1.0"
@@ -17,18 +24,18 @@ echo "=== Heraldvis Installer (Ubuntu only) ==="
 if [ -f /etc/os-release ]; then
   . /etc/os-release
   if [[ "${ID:-}" != "ubuntu" ]]; then
-    echo "⚠️  Detected ${PRETTY_NAME:-unknown} — only Ubuntu is supported. Continuing anyway..."
+    echo "⚠️  Detected ${PRETTY_NAME:-unknown} — only Ubuntu is supported. Continuing anyway..." >&2
   else
     echo "✓ Ubuntu ${VERSION_ID:-} detected"
   fi
 else
-  echo "⚠️  Cannot detect OS — only Ubuntu is supported. Continuing..."
+  echo "⚠️  Cannot detect OS — only Ubuntu is supported. Continuing..." >&2
 fi
 
 # deps check
 for cmd in curl tar; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "✗ Required: $cmd not found. Install with: sudo apt update && sudo apt install -y $cmd"
+    echo "✗ Required: $cmd not found. Install with: sudo apt update && sudo apt install -y $cmd" >&2
     exit 1
   fi
 done
@@ -44,7 +51,6 @@ echo "→ Extracting $TARBALL ..."
 tar -xzf "$TARBALL"
 BIN="./heraldvis-linux-x86_64/heraldvis"
 if [ ! -f "$BIN" ]; then
-  # fallback if tar extracts flat
   BIN="./heraldvis"
 fi
 chmod +x "$BIN" 2>/dev/null || true
@@ -55,17 +61,29 @@ echo "✓ Binary ready: $BIN"
 
 echo ""
 echo "--- Configuration (FR-5a precedence: CLI > env > config.toml) ---"
-if [ -t 0 ]; then
-  read -r -p "Endpoint URL [http://127.0.0.1:8000]: " INPUT_EP || INPUT_EP=""
-else
-  read -r -p "Endpoint URL [http://127.0.0.1:8000]: " INPUT_EP < /dev/tty || INPUT_EP=""
-fi
+
+# Helper: prompt that works with curl | bash (stdin=pipe) by reading from /dev/tty
+# Prints prompt to stderr so it shows even when stdin is pipe
+prompt_input() {
+  local prompt_text="$1"
+  local var_name="$2"
+  local input=""
+  # show prompt on stderr (visible even when stdin is pipe)
+  printf "%s" "$prompt_text" >&2
+  if [ -t 0 ]; then
+    IFS= read -r input || true
+  elif [ -e /dev/tty ]; then
+    IFS= read -r input < /dev/tty || true
+  else
+    input=""
+  fi
+  printf -v "$var_name" "%s" "$input"
+}
+
+prompt_input "Endpoint URL [http://127.0.0.1:8000]: " INPUT_EP
 ENDPOINT="${INPUT_EP:-http://127.0.0.1:8000}"
-if [ -t 0 ]; then
-  read -r -p "API Key (optional, press Enter to skip): " INPUT_KEY || INPUT_KEY=""
-else
-  read -r -p "API Key (optional, press Enter to skip): " INPUT_KEY < /dev/tty || INPUT_KEY=""
-fi
+
+prompt_input "API Key (optional, press Enter to skip): " INPUT_KEY
 API_KEY="${INPUT_KEY:-}"
 
 echo ""
@@ -92,11 +110,7 @@ echo ""
 echo "Notes: Linux Ubuntu only — binary built on ubuntu-latest (libasound2). For other distros use Docker/source build."
 
 # optional auto-run check
-if [ -t 0 ]; then
-  read -r -p "Run --check now? [Y/n]: " RUN_CHECK || RUN_CHECK="Y"
-else
-  read -r -p "Run --check now? [Y/n]: " RUN_CHECK < /dev/tty || RUN_CHECK="Y"
-fi
+prompt_input "Run --check now? [Y/n]: " RUN_CHECK
 RUN_CHECK="${RUN_CHECK:-Y}"
 if [[ "$RUN_CHECK" =~ ^[Yy]$ ]]; then
   if [ -n "$API_KEY" ]; then
