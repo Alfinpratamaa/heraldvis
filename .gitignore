@@ -2,3 +2,6 @@
 config.toml
 *.wav
 *.onnx
+/.opencode/
+/graphify-out/
+PROGRES_LOG.md
