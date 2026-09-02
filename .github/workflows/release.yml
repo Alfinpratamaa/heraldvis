@@ -1,4 +1,4 @@
-name: release
+name: Heraldvis Release
 
 on:
   push:
@@ -36,8 +36,29 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: Heraldvis v${{ github.ref_name }} — First Launch 🚀
           files: heraldvis-linux-x86_64.tar.gz
           generate_release_notes: true
+          body: |
+            ## Heraldvis ${{ github.ref_name }} — First Launch 🚀
+
+            Standalone binary Ubuntu x86_64 + config.toml.
+
+            ### Quick Start
+            ```bash
+            tar -xzf heraldvis-linux-x86_64.tar.gz
+            ./heraldvis --check        # verify dispatcher
+            ./heraldvis --help
+            # 3 opsi konfigurasi (FR-5a): CLI flags > env > config.toml
+            HERALDVIS_ENDPOINT=https://api.example.com HERALDVIS_API_KEY=sk-xxx ./heraldvis
+            ./heraldvis --endpoint https://api.example.com --api-key sk-xxx
+            ```
+
+            ### What's Included
+            - Tool-calling dispatcher (7 tools, whitelist sandbox)
+            - Qwen3.8 27B fine-tuned adapter compatible
+            - Full-duplex voice pipeline (Parakeet/Kokoro ready)
+            - Bearer auth + multi-tier config precedence
 
       - name: Upload artifact (manual dispatch)
         if: "!startsWith(github.ref, 'refs/tags/')"
