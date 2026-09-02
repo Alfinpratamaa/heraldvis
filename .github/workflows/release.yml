@@ -36,7 +36,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          name: Heraldvis v${{ github.ref_name }} — First Launch 🚀
+          name: Heraldvis ${{ github.ref_name }} — First Launch 🚀
           files: heraldvis-linux-x86_64.tar.gz
           generate_release_notes: true
           body: |
