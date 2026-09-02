@@ -60,3 +60,33 @@ For UI, copy, people, mobile layout, or code comments work, read `antislop.md` (
 - Code comments: `.agents/skills/antislop-code/SKILL.md` ← installed (heraldvis). Follow `antislop-code` hygiene: keep only comments that add info not shown by code; remove decorative banners/empty labels/workflow narration/emoji/end-markers.
 Before starting, ask the user when antislop applies: during the work, or after it is done.
 <!-- antislop:end -->
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## memory (MCP) — wajib sinkron dengan graphify
+
+Project ini memakai MCP memory (knowledge graph) untuk konteks lintas sesi.
+
+Aturan:
+- Selalu cek/simpan via MCP memory dulu sebelum mulai tugas besar: `memory_search_nodes` / `memory_read_graph`.
+- State awal sudah disimpan: project `heraldvis`, tool `graphify`, skill `antislop-code`, decision `workspace-lints` (lihat `memory_read_graph`). Jangan duplikasi — tambah observasi baru saja.
+- Setiap perubahan besar wajib simpan ke MCP memory + bareng `graphify update .` agar keduanya sinkron. Yang termasuk besar: crate baru/hapus, bump version matrix PRD §14, perubahan dispatcher/whitelist, protocol voice/net, schema `config.toml`/`ToolCall`, fix pedantic/arsitektur, atau ADR baru.
+- Cara simpan: `memory_add_observations` untuk observasi baru, `memory_create_entities`/`memory_create_relations` untuk entitas baru. Ringkas, teknis, tanpa filler.
+- Contoh alur kerja setelah code change:
+  ```bash
+  cargo check --workspace && cargo test --workspace
+  graphify update .
+  ```
+  lalu tambah observasi memory: "added crate X, bump tokio 1.43→1.44, alasan ...".
+- Jangan commit `graphify-out/` yang dirty tanpa alasan — jalankan update dulu, baru commit bareng memory.
