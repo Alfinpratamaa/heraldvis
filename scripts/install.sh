@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Heraldvis — Ubuntu only quick installer
-# 1-command: curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh | bash
+# 1-command (preferred, keeps tty): bash <(curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh)
+# fallback (also works now with /dev/tty): curl -fsSL https://raw.githubusercontent.com/Alfinpratamaa/heraldvis/main/scripts/install.sh | bash
 # or: curl -fsSL https://github.com/Alfinpratamaa/heraldvis/releases/download/v0.1.0/install.sh | bash
 
 REPO="Alfinpratamaa/heraldvis"
@@ -54,9 +55,17 @@ echo "✓ Binary ready: $BIN"
 
 echo ""
 echo "--- Configuration (FR-5a precedence: CLI > env > config.toml) ---"
-read -r -p "Endpoint URL [http://127.0.0.1:8000]: " INPUT_EP
+if [ -t 0 ]; then
+  read -r -p "Endpoint URL [http://127.0.0.1:8000]: " INPUT_EP || INPUT_EP=""
+else
+  read -r -p "Endpoint URL [http://127.0.0.1:8000]: " INPUT_EP < /dev/tty || INPUT_EP=""
+fi
 ENDPOINT="${INPUT_EP:-http://127.0.0.1:8000}"
-read -r -p "API Key (optional, press Enter to skip): " INPUT_KEY
+if [ -t 0 ]; then
+  read -r -p "API Key (optional, press Enter to skip): " INPUT_KEY || INPUT_KEY=""
+else
+  read -r -p "API Key (optional, press Enter to skip): " INPUT_KEY < /dev/tty || INPUT_KEY=""
+fi
 API_KEY="${INPUT_KEY:-}"
 
 echo ""
@@ -83,7 +92,11 @@ echo ""
 echo "Notes: Linux Ubuntu only — binary built on ubuntu-latest (libasound2). For other distros use Docker/source build."
 
 # optional auto-run check
-read -r -p "Run --check now? [Y/n]: " RUN_CHECK
+if [ -t 0 ]; then
+  read -r -p "Run --check now? [Y/n]: " RUN_CHECK || RUN_CHECK="Y"
+else
+  read -r -p "Run --check now? [Y/n]: " RUN_CHECK < /dev/tty || RUN_CHECK="Y"
+fi
 RUN_CHECK="${RUN_CHECK:-Y}"
 if [[ "$RUN_CHECK" =~ ^[Yy]$ ]]; then
   if [ -n "$API_KEY" ]; then
