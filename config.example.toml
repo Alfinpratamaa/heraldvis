@@ -15,6 +15,7 @@ execute_command = true
 navigate_browser = true
 
 [whitelist]
+enabled = true   # Jika false -> bypass semua whitelist (Full Access Mode)
 # Path prefix yang boleh diakses read_file/write_file (FR-1 sandboxing)
 allowed_paths = ["/tmp/heraldvis/", "./workspace/", "/tmp/"]
 # Command base yang boleh dieksekusi execute_command/run_test/git_operation (FR-1a)

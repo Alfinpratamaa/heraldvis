@@ -62,7 +62,10 @@ impl Default for ToolsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhitelistConfig {
-        /// Path prefix yang boleh diakses `read`/`write`.
+    /// Jika false -> bypass semua whitelist (Full Access Mode).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Path prefix yang boleh diakses `read`/`write`.
     #[serde(default = "default_allowed_paths")]
     pub allowed_paths: Vec<String>,
     /// Command whitelist untuk `execute_command` (FR-1a safety).
@@ -73,6 +76,7 @@ pub struct WhitelistConfig {
 impl Default for WhitelistConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             allowed_paths: default_allowed_paths(),
             allowed_commands: default_allowed_commands(),
         }
@@ -226,9 +230,12 @@ impl AppConfig {
         Self::from_toml_str(&s)
     }
 
-    /// Check apakah path lolos whitelist (prefix match, FR-1).
+    /// Check apakah path lolos whitelist (prefix match, FR-1). Bypass jika enabled=false (Full Access).
     #[must_use]
     pub fn is_path_allowed(&self, path: &str) -> bool {
+        if !self.whitelist.enabled {
+            return true;
+        }
         if self.whitelist.allowed_paths.is_empty() {
             return false;
         }
@@ -238,9 +245,12 @@ impl AppConfig {
             .any(|prefix| path.starts_with(prefix))
     }
 
-    /// Check apakah command lolos whitelist (FR-1a safety).
+    /// Check apakah command lolos whitelist (FR-1a safety). Bypass jika enabled=false.
     #[must_use]
     pub fn is_command_allowed(&self, command: &str) -> bool {
+        if !self.whitelist.enabled {
+            return true;
+        }
         let base = command.split_whitespace().next().unwrap_or("");
         self.whitelist.allowed_commands.iter().any(|c| c == base)
     }

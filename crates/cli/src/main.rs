@@ -61,6 +61,48 @@ fn parse_cli_overrides() -> (Option<String>, Option<String>) {
     (endpoint, api_key)
 }
 
+fn has_full_access_flag() -> bool {
+    std::env::args().any(|a| a == "--full-access")
+}
+
+fn handle_set_command() -> anyhow::Result<bool> {
+    let args: Vec<String> = std::env::args().collect();
+    let pos = args.iter().position(|a| a == "--set");
+    let Some(idx) = pos else { return Ok(false); };
+    let mode = args.get(idx + 1).map_or("", String::as_str);
+    let enable_full = match mode {
+        "full-access" => true,
+        "safe-mode" => false,
+        _ => {
+            eprintln!("Usage: heraldvis --set <full-access|safe-mode>");
+            std::process::exit(1);
+        }
+    };
+    // active config file: prefer config.toml, fallback to config.example.toml for reading, but always write to config.toml
+    let write_path = std::path::Path::new("config.toml");
+    let read_path = if write_path.exists() {
+        write_path
+    } else if std::path::Path::new("config.example.toml").exists() {
+        std::path::Path::new("config.example.toml")
+    } else {
+        write_path
+    };
+    let mut cfg = if read_path.exists() {
+        AppConfig::from_file(read_path).unwrap_or_default()
+    } else {
+        AppConfig::default()
+    };
+    cfg.whitelist.enabled = !enable_full;
+    let toml_str = toml::to_string(&cfg).unwrap_or_default();
+    std::fs::write(write_path, toml_str)?;
+    if enable_full {
+        println!("✓ Full Access Mode diaktifkan. Whitelist dinonaktifkan.");
+    } else {
+        println!("✓ Safe Mode diaktifkan. Whitelist aktif kembali.");
+    }
+    Ok(true)
+}
+
 fn apply_config_precedence(mut cfg: AppConfig) -> AppConfig {
     let (cli_ep, cli_key) = parse_cli_overrides();
     cfg.endpoint = heraldvis_config::resolve_endpoint(cli_ep, &cfg);
@@ -373,6 +415,9 @@ async fn main() -> anyhow::Result<()> {
         print_help();
         return Ok(());
     }
+    if args.iter().any(|a| a == "--set") && handle_set_command()? {
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--gui") {
         return run_gui().await;
     }
@@ -395,6 +440,9 @@ Usage:
   heraldvis --endpoint URL           # override VPS endpoint (FR-5a, precedence 1)
   heraldvis --api-key KEY            # override API key (FR-5a, precedence 1)
   heraldvis --endpoint URL --api-key KEY  # both overrides together
+  heraldvis --full-access            # bypass whitelist for this session (Full Access Mode)
+  heraldvis --set full-access        # disable whitelist permanently (config.toml enabled=false)
+  heraldvis --set safe-mode          # enable whitelist again (config.toml enabled=true)
 
 REPL:
   - ToolCall JSON per line → dispatch: {{\"name\":\"write_file\",\"arguments\":{{\"path\":\"/tmp/heraldvis/hi.txt\",\"content\":\"hi\"}}}}
@@ -413,8 +461,12 @@ Other env: HERALDVIS_VAD_MODEL (override VAD ONNX path)"
 
 async fn run_check() -> anyhow::Result<()> {
     let cfg = apply_config_precedence(load_config());
+    let full = has_full_access_flag() || !cfg.whitelist.enabled;
+    if full {
+        println!("⚠️  FULL ACCESS MODE: Whitelist dinonaktifkan. Agen memiliki akses penuh ke sistem operasi.");
+    }
     info!(endpoint = %cfg.endpoint, mode = ?cfg.mode, "config loaded (check mode, FR-5a resolved)");
-    let d = Dispatcher::new(&cfg);
+    let d = if has_full_access_flag() { Dispatcher::new(&cfg).with_full_access(true) } else { Dispatcher::new(&cfg) };
     let dummy = ToolCall {
         name: heraldvis_core::ToolName::ExecuteCommand,
         arguments: serde_json::json!({"command": "echo heraldvis check"}),
@@ -448,11 +500,16 @@ async fn run_headless() -> anyhow::Result<()> {
         cfg.mode = heraldvis_config::AppMode::Voice;
     }
 
+    let full_access = has_full_access_flag() || !cfg.whitelist.enabled;
+    if full_access {
+        println!("⚠️  FULL ACCESS MODE: Whitelist dinonaktifkan. Agen memiliki akses penuh ke sistem operasi.");
+    }
+
     let net_cfg = net_config_from_app(&cfg);
     let client = HeraldvisClient::new(net_cfg.clone());
     let voice_cfg = voice_config_from_app(&cfg);
     let mut pipeline = VoicePipeline::new(voice_cfg);
-    let dispatcher = Dispatcher::new(&cfg);
+    let dispatcher = if has_full_access_flag() { Dispatcher::new(&cfg).with_full_access(true) } else { Dispatcher::new(&cfg) };
     let mut logger = SessionLogger::new();
 
     info!(endpoint=%cfg.endpoint, mode=?cfg.mode, stt=%cfg.voice.stt_model, tts=%cfg.voice.tts_model, "heraldvis M5 headless running");

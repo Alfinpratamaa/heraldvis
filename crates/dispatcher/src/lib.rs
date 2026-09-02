@@ -35,12 +35,20 @@ impl From<CoreError> for DispatchError {
 /// Dispatcher utama — stateless, hold reference ke `AppConfig`.
 pub struct Dispatcher<'a> {
     config: &'a AppConfig,
+    cli_full_access: bool,
 }
 
 impl<'a> Dispatcher<'a> {
     #[must_use]
     pub fn new(config: &'a AppConfig) -> Self {
-        Self { config }
+        Self { config, cli_full_access: false }
+    }
+
+    /// Buat dispatcher dengan flag Full Access per-sesi (`--full-access`).
+    #[must_use]
+    pub fn with_full_access(mut self, v: bool) -> Self {
+        self.cli_full_access = v;
+        self
     }
 
     /// Entry point M1: validasi → whitelist check → eksekusi → `ToolResponse`.
@@ -78,6 +86,9 @@ impl<'a> Dispatcher<'a> {
     }
 
     fn check_whitelist(&self, call: &ToolCall) -> Result<(), String> {
+        if !self.config.whitelist.enabled || self.cli_full_access {
+            return Ok(());
+        }
         match call.name {
             ToolName::ReadFile | ToolName::WriteFile => {
                 let path = call
@@ -282,6 +293,35 @@ mod tests {
             heraldvis_core::ToolResult::Error { error } => assert!(error.contains("whitelist")),
             heraldvis_core::ToolResult::Success { .. } => panic!("expected error"),
         }
+    }
+
+    #[tokio::test]
+    async fn full_access_bypass_command_and_path() {
+        let mut cfg = heraldvis_config::AppConfig::default();
+        cfg.whitelist.enabled = false;
+        let d = Dispatcher::new(&cfg);
+        // command outside whitelist should pass when enabled=false
+        let call = ToolCall {
+            name: heraldvis_core::ToolName::ExecuteCommand,
+            arguments: json!({"command": "google-chrome --version"}),
+            id: None,
+        };
+        // check_whitelist should Ok
+        assert!(d.check_whitelist(&call).is_ok());
+        // path outside whitelist should pass
+        let call2 = ToolCall {
+            name: heraldvis_core::ToolName::ReadFile,
+            arguments: json!({"path": "/opt/google/chrome"}),
+            id: None,
+        };
+        assert!(d.check_whitelist(&call2).is_ok());
+
+        // via cli_full_access flag, even when config enabled=true
+        let mut cfg2 = heraldvis_config::AppConfig::default();
+        cfg2.whitelist.enabled = true;
+        let d2 = Dispatcher::new(&cfg2).with_full_access(true);
+        assert!(d2.check_whitelist(&call).is_ok());
+        assert!(d2.check_whitelist(&call2).is_ok());
     }
 
     #[tokio::test]
