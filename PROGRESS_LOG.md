@@ -576,7 +576,8 @@ allowed_commands = ["ls","cat","echo","grep","find","awk","sed","mkdir","rm","ch
 - `cargo run -p heraldvis -- --check` CHECK OK (ws_url precedence tetap).
 - REPL `inspect_screen` manual (synthetic fallback, headless): `{\"name\":\"inspect_screen\",\"arguments\":{\"reason\":\"check desktop\",\"detail_level\":\"low\"}}` → `screenshot (in-memory JPEG Data URL, 768px max): data:image/jpeg;base64,...` **4735 bytes** valid JPEG Data URL, zero disk I/O verified (no file created).
 
-### 21.5 Langkah Berikutnya
-- [ ] Tag `v0.1.2` rilis M7 11-tool (workflow `release.yml` `v*`) — flowchart in-memory E2E `inspect_screen` ↔ Qwen VL prompt image_url.
-- [ ] E2E vision nyata: Qwen3.8-27B VL `image_url` Data URL → `press_key/type_text` multi-turn (headless mock → Ubuntu X11).
+### 21.5 Release & Langkah Berikutnya
+- [x] Commit `a6b1b9c` feat M7 + push `main` OK — `crates/vision` + 11th tool `inspect_screen` + README 7 crates/11 tools.
+- [x] Tag `v0.1.2` rilis M7 11-tool — workflow `33634586679` **success** (`heraldvis-linux-x86_64.tar.gz` 3130899 bytes + `install.sh` 5719), `v0.1.1` tetap checkpoint M6.
+- [ ] E2E vision nyata: Qwen3.8-27B VL `image_url` Data URL → `press_key/type_text` multi-turn (headless mock → Ubuntu X11) — Data URL `inspect_screen` siap kirim sebagai `image_url` ke `serve_agent.py`.
 - [ ] Uji E2E mode suara Parakeet/Kokoro + benchmarking §13 PRD 9200 sampel.
