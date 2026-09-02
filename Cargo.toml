@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/dispatcher",
+    "crates/voice",
+    "crates/net",
+    "crates/config",
+    "crates/cli",
+]
+
+[workspace.dependencies]
+# Async Runtime & Utilities
+tokio = { version = "1.43", features = ["full"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
+async-trait = "0.1"
+
+# Serialization & Config
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Audio & VAD — ort pakai tls-rustls agar tidak butuh libssl-dev di WSL headless.
+# Setelah `sudo apt install libssl-dev pkg-config`, opsi tls-native juga valid.
+cpal = "0.18"
+rubato = "0.15"
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["download-binaries", "tls-rustls"] }
+hound = "3.5"
+
+# Desktop Automation & Linux OS
+enigo = "0.3"
+zbus = "5.0"
+atspi = "0.26"
+notify = "8.0"
+
+# Networking ke VPS (vLLM / SGLang) — rustls-tls agar tidak butuh libssl-dev di WSL.
+# Alternatif native-tls tetap didukung setelah apt install libssl-dev.
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
+tokio-tungstenite = "0.26"
+
+# GUI Overlay (Jarvis-style)
+eframe = "0.36"
+egui = "0.36"
+
+# Error handling
+anyhow = "1.0"
+
+# Tracing & Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.clippy]
+# Ch2: pedantic warn locally, deny di CI via -D warnings
+pedantic = "warn"
+# allow list kecil — sisanya deny via pedantic
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "warn"
+
+[workspace.lints.rust]
+unused = "warn"

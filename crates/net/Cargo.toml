@@ -1,0 +1,20 @@
+[package]
+name = "heraldvis-net"
+version = "0.1.0"
+edition = "2021"
+description = "Networking Heraldvis: WebSocket/HTTP client ke VPS (vLLM/SGLang)"
+license = "MIT"
+
+[dependencies]
+heraldvis-core = { path = "../core" }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

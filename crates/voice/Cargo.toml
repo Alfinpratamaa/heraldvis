@@ -1,0 +1,23 @@
+[package]
+name = "heraldvis-voice"
+version = "0.1.0"
+edition = "2021"
+description = "Voice pipeline Heraldvis: cpal capture/playback, VAD, barge-in"
+license = "MIT"
+
+[features]
+default = []
+audio = ["cpal", "rubato", "ort", "hound"]
+
+[dependencies]
+heraldvis-core = { path = "../core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+cpal = { workspace = true, optional = true }
+rubato = { workspace = true, optional = true }
+ort = { workspace = true, optional = true }
+hound = { workspace = true, optional = true }
+futures-util = { workspace = true }
+
+[lints]
+workspace = true

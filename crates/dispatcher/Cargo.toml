@@ -1,0 +1,25 @@
+[package]
+name = "heraldvis-dispatcher"
+version = "0.1.0"
+edition = "2021"
+description = "Tool dispatcher Heraldvis: fs, process, git, dbus/atspi, browser (M1 text-only)"
+license = "MIT"
+
+[features]
+default = []
+automation = ["enigo", "zbus", "atspi"]
+
+[dependencies]
+heraldvis-core = { path = "../core" }
+heraldvis-config = { path = "../config" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+enigo = { workspace = true, optional = true }
+zbus = { workspace = true, optional = true }
+atspi = { workspace = true, optional = true }
+notify = { workspace = true }
+
+[lints]
+workspace = true

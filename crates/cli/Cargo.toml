@@ -1,0 +1,32 @@
+[package]
+name = "heraldvis"
+version = "0.1.0"
+edition = "2021"
+description = "Heraldvis CLI — entrypoint binary (daemon + floating GUI overlay / headless)"
+license = "MIT"
+
+[[bin]]
+name = "heraldvis"
+path = "src/main.rs"
+
+[features]
+default = []
+gui = ["eframe", "egui"]
+
+[dependencies]
+heraldvis-core = { path = "../core" }
+heraldvis-dispatcher = { path = "../dispatcher" }
+heraldvis-voice = { path = "../voice" }
+heraldvis-net = { path = "../net" }
+heraldvis-config = { path = "../config" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+eframe = { workspace = true, optional = true }
+egui = { workspace = true, optional = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
