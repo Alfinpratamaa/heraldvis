@@ -7,7 +7,7 @@ license = "MIT"
 
 [features]
 default = []
-audio = ["cpal", "rubato", "ort", "hound"]
+audio = ["cpal", "rubato", "ort", "hound", "ndarray"]
 
 [dependencies]
 heraldvis-core = { path = "../core" }
@@ -16,6 +16,7 @@ tracing = { workspace = true }
 cpal = { workspace = true, optional = true }
 rubato = { workspace = true, optional = true }
 ort = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
 hound = { workspace = true, optional = true }
 futures-util = { workspace = true }
 

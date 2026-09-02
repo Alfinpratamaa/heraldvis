@@ -10,10 +10,12 @@ heraldvis-core = { path = "../core" }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 futures-util = { workspace = true }
+async-stream = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 tokio-tungstenite = { workspace = true }
+http = { workspace = true }
 tracing = { workspace = true }
 
 [lints]
