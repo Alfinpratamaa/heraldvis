@@ -4,4 +4,3 @@ config.toml
 *.onnx
 /.opencode/
 /graphify-out/
-PROGRES_LOG.md

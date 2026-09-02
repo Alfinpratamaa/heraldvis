@@ -1,7 +1,7 @@
 # Heraldvis config — copy ke config.toml dan sesuaikan (PRD FR-5, §14.3)
 # Jalankan `heraldvis --check` untuk validasi dispatcher + whitelist tanpa butuh VPS.
 
-endpoint = "http://127.0.0.1:8000"
+endpoint = "http://127.0.0.1:8000" # VPS MI300X vLLM: http://129.212.186.196:8000/v1 — ganti saat serving ROCm aktif (PROGRES_LOG §13)
 api_key = ""           # opsional — bearer token untuk VPS
 mode = "text_only"     # text_only | voice
 
@@ -18,7 +18,8 @@ navigate_browser = true
 # Path prefix yang boleh diakses read_file/write_file (FR-1 sandboxing)
 allowed_paths = ["/tmp/heraldvis/", "./workspace/", "/tmp/"]
 # Command base yang boleh dieksekusi execute_command/run_test/git_operation (FR-1a)
-allowed_commands = ["cargo", "git", "ls", "cat", "echo", "npm", "pytest", "python", "python3"]
+# Diperluas untuk dataset linux-command ~8700 sampel (PROGRES_LOG §12.2) — sesuaikan whitelist FR-1 saat eval paper
+allowed_commands = ["cargo", "git", "ls", "cat", "echo", "npm", "pytest", "python", "python3", "grep", "find", "awk", "sed", "mkdir", "rm", "chmod", "cp", "mv", "head", "tail", "wc", "sort", "xargs", "rg"]
 
 [voice]
 stt_model = "parakeet-tdt-1.1b"

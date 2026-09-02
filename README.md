@@ -93,8 +93,10 @@ cargo test --workspace
 
 ## Konfigurasi (FR-5)
 
-Copy `config.example.toml` → `config.toml` dan sesuaikan `endpoint` VPS vLLM/SGLang (`/v1/chat/completions` streaming) dan `whitelist`.
+Copy `config.example.toml` → `config.toml` dan sesuaikan `endpoint` VPS vLLM/SGLang (`/v1/chat/completions` streaming) dan `whitelist`. Whitelist `allowed_commands` sudah diperluas untuk dataset linux-command 8700 sampel — persempit lagi untuk production (FR-1a full-auto tanpa approval gate, Safety §13.5).
 
 ## Roadmap
 
-M0 PRD ✓ | M1 skeleton+dispatcher ✓ | M2 WS client | M3 voice pipeline | M4 barge-in | M5 E2E fine-tune | M6 logging SINTA 3
+M0 PRD ✓ | M1 skeleton+dispatcher ✓ | M2 WS/SSE ✓ (typed ChatChunk/SseEvent, reconnect jitter) | M3 voice pipeline ✓ (cpal/rubato/ort VAD v5) | M4 barge-in ✓ (full-duplex) | M5 E2E ✓ (SSE stream → sentence TTS queue → tool auto-dispatch, offline fallback) | M6 logging SINTA 3 (JSONL /tmp/heraldvis/sessions)
+
+> Training Qwen3.8-27B QLoRA masih `11/2991` step (~3 jam) di VPS MI300X (`PROGRES_LOG.md`) — heraldvis sudah siap uji begitu vLLM/SGLang ROCm serve `http://129.212.186.196:8000/v1` (lihat `config.example.toml`).
