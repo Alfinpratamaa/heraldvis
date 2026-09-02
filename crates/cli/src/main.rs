@@ -184,7 +184,7 @@ impl SessionLogger {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI tools schema (mirrors core ToolName 7 tools)
+// OpenAI tools schema (mirrors core ToolName 11 tools — FR-7 adds inspect_screen)
 // ---------------------------------------------------------------------------
 
 fn openai_tools_schema() -> serde_json::Value {
@@ -198,7 +198,8 @@ fn openai_tools_schema() -> serde_json::Value {
         {"type":"function","function":{"name":"navigate_browser","description":"Open browser URL via xdg-open (agnostic)","parameters":{"type":"object","properties":{"url":{"type":"string"},"browser":{"type":"string"}},"required":["url"]}}},
         {"type":"function","function":{"name":"press_key","description":"Press a single key (automation)","parameters":{"type":"object","properties":{"key":{"type":"string","description":"Key name e.g. Enter, Tab, Escape, a"}},"required":["key"]}}},
         {"type":"function","function":{"name":"type_text","description":"Type text into focused window","parameters":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}}},
-        {"type":"function","function":{"name":"take_screenshot","description":"Capture screenshot to PNG path (whitelisted)","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Destination .png path"}},"required":["path"]}}}
+        {"type":"function","function":{"name":"take_screenshot","description":"Capture screenshot to PNG path (whitelisted)","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Destination .png path"}},"required":["path"]}}},
+        {"type":"function","function":{"name":"inspect_screen","description":"Mengambil frame gambar layar desktop aktif saat ini langsung dari memori untuk persepsi visual.","parameters":{"type":"object","properties":{"reason":{"type":"string","description":"Tujuan/alasan memeriksa layar desktop saat ini."},"detail_level":{"type":"string","enum":["low","high"],"description":"low=768px high=1024px (default high)"}}}}}
     ])
 }
 
@@ -389,6 +390,7 @@ async fn run_chat_turn(
                 "press_key" => heraldvis_core::ToolName::PressKey,
                 "type_text" => heraldvis_core::ToolName::TypeText,
                 "take_screenshot" => heraldvis_core::ToolName::TakeScreenshot,
+                "inspect_screen" => heraldvis_core::ToolName::InspectScreen,
                 other => {
                     warn!(tool=%other, "unknown tool from model, skipping");
                     continue;

@@ -1,0 +1,17 @@
+[package]
+name = "heraldvis-vision"
+version = "0.1.0"
+edition = "2021"
+description = "In-Memory desktop framebuffer (Zero Disk I/O) — PRD FR-7a/b"
+license = "MIT"
+
+[features]
+default = []
+xcap = ["dep:xcap"]
+
+[dependencies]
+xcap = { workspace = true, optional = true }
+image.workspace = true
+base64.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

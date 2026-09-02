@@ -55,12 +55,13 @@ sudo apt install -y libwayland-dev libxkbcommon-x11-dev
 ├── Cargo.toml              # workspace root — dependency matrix terkunci Bab 14
 ├── config.example.toml     # FR-5: endpoint, whitelist, mode, voice
 ├── crates/
-│   ├── core/        # schema ToolCall/ToolResponse, error, validation FR-1
-│   ├── dispatcher/  # 10 tool handlers + whitelist/sandbox FR-1a + full-access FR-1a
+│   ├── core/        # schema ToolCall/ToolResponse, error, validation FR-1 (11 tools)
+│   ├── dispatcher/  # 11 tool handlers + whitelist/sandbox FR-1a + full-access FR-1a
+│   ├── vision/      # in-memory framebuffer FR-7 (xcap/image/base64, zero disk)
 │   ├── voice/       # cpal+rubato+ort(VAD v5)+hound+barge-in FR-2 (M3/M4 full-duplex)
 │   ├── net/         # reqwest(SSE)+tokio-tungstenite(WS) FR-3 (M2 SSE typed + reconnect)
-│   ├── config/      # toml parsing FR-5
-│   └── cli/         # binary heraldvis — headless + eframe overlay FR-1b
+│   ├── config/      # toml parsing FR-5 + FR-7c inspect_screen toggle
+│   └── cli/         # binary heraldvis — headless + eframe overlay FR-1b (11→ streaming loop 10 iter)
 └── PRD.md
 ```
 
@@ -91,7 +92,7 @@ cargo check --workspace
 cargo test --workspace
 ```
 
-## Konfigurasi (FR-5 / FR-5a / FR-6)
+## Konfigurasi (FR-5 / FR-5a / FR-6 / FR-7)
 
 Copy `config.example.toml` → `config.toml` dan sesuaikan `endpoint` VPS vLLM/SGLang (`/v1/chat/completions` streaming) dan `whitelist`. Whitelist `allowed_commands` sudah diperluas untuk dataset linux-command 8700 sampel — persempit lagi untuk production (FR-1a full-auto tanpa approval gate, Safety §13.5).
 
@@ -130,14 +131,14 @@ cp config.toml ./config.toml  # edit endpoint/api_key di file
 > Release workflow: `.github/workflows/release.yml` — trigger `push tag v*` atau `workflow_dispatch`, build `ubuntu-latest` (`libasound2-dev` + `cargo build --release --locked`), packaging `heraldvis` + `config.toml` → `heraldvis-linux-x86_64.tar.gz` via `softprops/action-gh-release@v2`.
 > `config.toml` di artifact adalah copy dari `config.example.toml` — ganti `endpoint` ke VPS aktif setelah extract.
 
-## Tools (10) — FR-1 + FR-6a
+## Tools (11) — FR-1 + FR-6a + FR-7c
 
-`open_application` · `read_file` · `write_file` · `run_test` · `git_operation` · `execute_command` · `navigate_browser` (xdg-open agnostik) · `press_key` · `type_text` · `take_screenshot` — semua dengan `[tools]` toggle di `config.toml` + whitelist path/command, HEADLESS mock bila tanpa `--features automation`.
+`open_application` · `read_file` · `write_file` · `run_test` · `git_operation` · `execute_command` · `navigate_browser` (xdg-open agnostik) · `press_key` · `type_text` · `take_screenshot` · `inspect_screen` (in-memory JPEG Data URL, detail_level low/high, zero disk) — semua dengan `[tools]` toggle di `config.toml` + whitelist path/command, HEADLESS mock bila tanpa `--features automation/xcap`.
 
 **Full Access:** `--full-access` (CLI) atau `whitelist.enabled=false` bypass sandbox — banner `FULL ACCESS` tampil, log `blocked_by_whitelist=false`, safety tetap audit via SessionLogger JSONL.
 
 ## Roadmap
 
-M0 PRD ✓ | M1 skeleton+dispatcher ✓ | M2 WS/SSE ✓ (typed ChatChunk/SseEvent, reconnect jitter) | M3 voice pipeline ✓ (cpal/rubato/ort VAD v5) | M4 barge-in ✓ (full-duplex) | M5 E2E ✓ (SSE stream → sentence TTS queue → tool auto-dispatch, offline fallback) | M6 desktop automation ✓ (press_key/type_text/take_screenshot + autonomous loop 10 iter) + logging SINTA 3 (JSONL /tmp/heraldvis/sessions)
+M0 PRD ✓ | M1 skeleton+dispatcher ✓ | M2 WS/SSE ✓ (typed ChatChunk/SseEvent, reconnect jitter) | M3 voice pipeline ✓ (cpal/rubato/ort VAD v5) | M4 barge-in ✓ (full-duplex) | M5 E2E ✓ (SSE stream → sentence TTS queue → tool auto-dispatch, offline fallback) | M6 desktop automation ✓ (press_key/type_text/take_screenshot + autonomous loop 10 iter) | M7 vision ✓ (in-memory framebuffer, inspect_screen low 768/high 1024, zero disk, headless synthetic fallback) + logging SINTA 3 (JSONL /tmp/heraldvis/sessions)
 
 > Training Qwen3.8-27B QLoRA masih `11/2991` step (~3 jam) di VPS MI300X (`PROGRES_LOG.md`) — heraldvis sudah siap uji begitu vLLM/SGLang ROCm serve `http://129.212.186.196:8000/v1` (lihat `config.example.toml`).

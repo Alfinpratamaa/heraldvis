@@ -16,6 +16,7 @@ navigate_browser = true
 press_key = true
 type_text = true
 take_screenshot = true
+inspect_screen = true  # FR-7c: in-memory perception, Zero Disk I/O
 
 [whitelist]
 enabled = true   # Jika false -> bypass semua whitelist (Full Access Mode)

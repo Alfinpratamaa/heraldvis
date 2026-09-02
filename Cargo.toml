@@ -6,6 +6,7 @@ members = [
     "crates/voice",
     "crates/net",
     "crates/config",
+    "crates/vision",
     "crates/cli",
 ]
 
@@ -45,6 +46,11 @@ http = "1.3"
 # GUI Overlay (Jarvis-style)
 eframe = "0.36"
 egui = "0.36"
+
+# Vision — In-Memory Framebuffer M7 (Zero Disk I/O)
+xcap = "0.0.14"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+base64 = "0.22"
 
 # Error handling
 anyhow = "1.0"

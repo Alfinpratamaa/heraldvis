@@ -50,6 +50,8 @@ pub struct ToolsConfig {
     pub type_text: bool,
     #[serde(default = "default_true")]
     pub take_screenshot: bool,
+    #[serde(default = "default_true")]
+    pub inspect_screen: bool,
 }
 
 impl Default for ToolsConfig {
@@ -65,6 +67,7 @@ impl Default for ToolsConfig {
             press_key: true,
             type_text: true,
             take_screenshot: true,
+            inspect_screen: true,
         }
     }
 }

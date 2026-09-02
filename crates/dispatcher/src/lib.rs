@@ -74,6 +74,7 @@ impl<'a> Dispatcher<'a> {
             ToolName::PressKey => Self::handle_press_key(call),
             ToolName::TypeText => Self::handle_type_text(call),
             ToolName::TakeScreenshot => self.handle_take_screenshot(call).await,
+            ToolName::InspectScreen => Self::handle_inspect_screen(call),
         };
 
         match result {
@@ -117,7 +118,8 @@ impl<'a> Dispatcher<'a> {
             | ToolName::NavigateBrowser
             | ToolName::OpenBrowser
             | ToolName::PressKey
-            | ToolName::TypeText => {}
+            | ToolName::TypeText
+            | ToolName::InspectScreen => {}
         }
         let enabled = match call.name {
             ToolName::OpenApplication => self.config.tools.open_application,
@@ -132,6 +134,7 @@ impl<'a> Dispatcher<'a> {
             ToolName::PressKey => self.config.tools.press_key,
             ToolName::TypeText => self.config.tools.type_text,
             ToolName::TakeScreenshot => self.config.tools.take_screenshot,
+            ToolName::InspectScreen => self.config.tools.inspect_screen,
         };
         if !enabled {
             return Err(format!("tool {} disabled in config", call.name));
@@ -265,6 +268,27 @@ impl<'a> Dispatcher<'a> {
         {
             Ok(format!("typed {} chars (automation mock — build without --features automation)", text.len()))
         }
+    }
+
+    fn handle_inspect_screen(call: &ToolCall) -> Result<String, DispatchError> {
+        let dl = call
+            .arguments
+            .get("detail_level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("high")
+            .to_ascii_lowercase();
+        let max_dim: u32 = match dl.as_str() {
+            "low" => 768,
+            _ => 1024,
+        };
+        let data_url = heraldvis_vision::ScreenPerception::capture_frame_in_memory(max_dim)
+            .map_err(DispatchError::Execution)?;
+        // Return truncated preview + byte size — keep full Data URL for VLM (caller gets it in output)
+        Ok(format!(
+            "inspect_screen: captured {} bytes as {}",
+            data_url.len(),
+            data_url
+        ))
     }
 
     async fn handle_take_screenshot(&self, call: &ToolCall) -> Result<String, DispatchError> {

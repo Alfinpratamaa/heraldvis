@@ -12,6 +12,7 @@ automation = ["enigo", "zbus", "atspi"]
 [dependencies]
 heraldvis-core = { path = "../core" }
 heraldvis-config = { path = "../config" }
+heraldvis-vision = { path = "../vision" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

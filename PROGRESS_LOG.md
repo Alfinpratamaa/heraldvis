@@ -548,3 +548,35 @@ allowed_commands = ["ls","cat","echo","grep","find","awk","sed","mkdir","rm","ch
 ### 20.4 Langkah Berikutnya
 - [ ] Re-tag & re-release `v0.1.0` (workflow `release.yml` tag `v*`) bawa artifact M6 10-tool + `install.sh` auto-PATH + `HERALDVIS_ENDPOINT` persist.
 - [ ] Uji E2E voice Parakeet/Kokoro (§15.2) + benchmarking §13 PRD 9200 sampel.
+
+## 21. M7 — In-Memory Framebuffer & inspect_screen (2 Sep 2026 malam — SELESAI ✅)
+
+> PRD FR-7a/b/c — zero-disk streaming, adaptive sampling, `inspect_screen` tool.
+
+### 21.1 PRD & Workspace Deps
+- **PRD.md FR-7** baru: FR-7a In-Memory Framebuffer Stream (`Arc<RwLock<Option<Vec<u8>>>>`, zero disk), FR-7b Adaptive Sampling & Resizing (max_dimension 64..4096 clamp, Triangle, Cursor→JPEG, Data URL), FR-7c `inspect_screen` (reason + detail_level low/high/auto → 768/1024 max_dimension). Matrix PRD §14 diperluas `xcap 0.0.14`, `image 0.25`, `base64 0.22`.
+- **Cargo.toml** workspace: members `crates/vision` baru, `workspace.dependencies` tambah `xcap 0.0.14`, `image 0.25`, `base64 0.22`.
+- **TAG** `v0.1.1` di-push di `2396a6f` (M6 10-tool) sebagai checkpoint sebelum M7 — rilis gh `33633922619` 2953946 bytes.
+
+### 21.2 Crate `heraldvis-vision` (baru)
+- `crates/vision/Cargo.toml` deps `xcap` optional (`default = []`, feature `xcap`), `image 0.25`, `base64 0.22`, `thiserror 2`.
+- `crates/vision/src/lib.rs` `VisionBuffer` (`Arc<RwLock<Option<Vec<u8>>>>` set/get/peek/clear) + `ScreenPerception` (`capture_frame_in_memory(max_dimension)` → Data URL JPEG, `try_capture_real` gated `#[cfg(feature = "xcap")]` else Err → synthetic fallback `synthetic_image` gradient 256×144, `downscale_if_needed` Triangle, `encode_jpeg` Cursor 80 quality, `encode_base64_data_url`, clamp 64..4096).
+- 3 tests: `capture_frame_in_memory_returns_valid_data_url` (no disk I/O, prefix `data:image/jpeg;base64,` len 4735), `auto_low_clamps`, `vision_buffer_set_get`.
+- Desain **headless-first**: `cargo check --workspace` default tanpa `libdbus-1-dev` lolos (sebelumnya `xcap/libdbus-sys build-script failed`). Enable nyata `cargo check -p heraldvis-vision --features xcap` opsional (butuh `libdbus-1-dev`).
+
+### 21.3 Core / Config / Dispatcher / CLI
+- **core** `ToolName` 10→11 `InspectScreen`, `InspectScreenParams { reason, detail_level }`, `Display` `inspect_screen`, `ToolCall::validate` `detail_level low|high|auto`.
+- **config** `ToolsConfig` tambah `inspect_screen: bool` default true (`#[serde(default = \"default_true\")]`), `config.example.toml` `[tools]` 10→11 `inspect_screen = true`.
+- **dispatcher** `Cargo.toml` dep `heraldvis-vision` (default-features false, no xcap), `lib.rs` `check_whitelist` InspectScreen hanya cek `enabled`, dispatch 11 varian, `handle_inspect_screen` parse `detail_level` → max_dim 768 (low) /1024 (high/auto) → `ScreenPerception::capture_frame_in_memory` → `Ok(\"screenshot (in-memory JPEG Data URL, 768px max): data:image/jpeg;base64,...\")`.
+- **cli** `openai_tools_schema` 10→11 tambah `inspect_screen` JSON (`reason` string, `detail_level` enum low/high, required reason), mapping `inspect_screen→InspectScreen`.
+
+### 21.4 Validasi
+- `cargo check --workspace` default **OK** 0.20s (tanpa xcap); `cargo check --workspace --features heraldvis-voice/audio,heraldvis-dispatcher/automation,heraldvis/gui` OK; `cargo check -p heraldvis-vision --features xcap` skip (no libdbus-1-dev di WSL, expected).
+- `cargo test --workspace` **29 passed** (core 7, config 4, dispatcher 5, vision 3, net 8, cli 2) — +3 vision vs 26 di M6.
+- `cargo run -p heraldvis -- --check` CHECK OK (ws_url precedence tetap).
+- REPL `inspect_screen` manual (synthetic fallback, headless): `{\"name\":\"inspect_screen\",\"arguments\":{\"reason\":\"check desktop\",\"detail_level\":\"low\"}}` → `screenshot (in-memory JPEG Data URL, 768px max): data:image/jpeg;base64,...` **4735 bytes** valid JPEG Data URL, zero disk I/O verified (no file created).
+
+### 21.5 Langkah Berikutnya
+- [ ] Tag `v0.1.2` rilis M7 11-tool (workflow `release.yml` `v*`) — flowchart in-memory E2E `inspect_screen` ↔ Qwen VL prompt image_url.
+- [ ] E2E vision nyata: Qwen3.8-27B VL `image_url` Data URL → `press_key/type_text` multi-turn (headless mock → Ubuntu X11).
+- [ ] Uji E2E mode suara Parakeet/Kokoro + benchmarking §13 PRD 9200 sampel.

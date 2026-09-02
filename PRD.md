@@ -225,6 +225,48 @@ Semua tool baru wajib terdaftar di `core::ToolName`, `ToolCall::validate()`, `di
 - Mapping `tool_name` string -> `ToolName` diperluas ke 10 varian (`press_key`, `type_text`, `take_screenshot` ditambah 7 lama); unknown tool -> warn + skip, tidak abort loop.
 - `cli::openai_tools_schema()` kini mengembalikan 10 tool definitions (agnostik browser + 3 primitif baru) sehingga `heraldvis --check` tetap validasi tanpa VPS.
 
+### FR-7: M7 In-Memory Real-Time Screen Perception Layer (Zero Disk I/O)
+
+M7 mengganti tangkapan layar berbasis berkas (`take_screenshot .png` → disk `/tmp/`) dengan framebuffer RAM murni (prinsip OBS/ScreenCast) untuk VLM perception — latensi <5 ms, tanpa keausan SSD, bandwidth hemat.
+
+#### FR-7a: In-Memory Desktop Framebuffer Stream (Zero Disk I/O)
+
+- Client harus menyediakan modul penangkap layar desktop yang beroperasi **murni di RAM** (tanpa `std::fs::write` / `File::create` ke `/tmp/` atau storage lokal apa pun).
+- Frame buffer layar termutakhir disimpan dalam struktur thread-safe `Arc<RwLock<Option<Vec<u8>>>>` (atau setara) yang siap diambil seketika; pengambilan frame on-demand saat model meminta observasi visual — bukan polling tulis-berkas periodik.
+- Implementasi: crate baru `heraldvis-vision` (`crates/vision`), dependensi `xcap 0.0.14` (capture `RgbaImage` langsung ke RAM di Linux X11 & Wayland), `image 0.25` (resize/encode), `base64 0.22` (Data URL). Dilarang membuat file sementara — unit test harus assert tidak ada `.png`/`.jpg` baru di `/tmp/` maupun `cwd` setelah `capture_frame_in_memory`.
+- Fallback headless (WSL/CI tanpa display): bila `Monitor::all()` kosong atau `capture_image()` gagal, kembalikan synthetic placeholder JPEG in-memory (mis. gradient 256×144) agar test deterministik tanpa display server — tetap tanpa disk I/O.
+
+#### FR-7b: Adaptive In-Memory Frame Sampling & Resizing
+
+- Sebelum dikirim ke VLM (Vision-Language Model) di VPS, frame di-RAM di-downscale proporsional bila sisi terpanjang > `max_dimension` (default `1024`, opsi `768` via `detail_level`) memakai `image::imageops::FilterType::Triangle` (seimbang kualitas/latensi).
+- Kemudian di-encode **langsung ke `Cursor<Vec<u8>>` sebagai JPEG** (`image::ImageFormat::Jpeg`, quality default crate) — tidak lewat disk, buffer dikonversi ke `base64::engine::general_purpose::STANDARD` Data URL `data:image/jpeg;base64,...`.
+- Tujuannya: hemat bandwidth jaringan dan konsumsi vision-token VLM (token ~ proporsional piksel), mirip praktik resize 1024 di OpenAI vision.
+- API: `ScreenPerception::capture_frame_in_memory(max_dimension: u32) -> Result<String, String>` — `max_dimension` dibatasi `64..=4096` (clamp), error string bila gagal total (tidak ada monitor & fallback pun gagal — seharusnya tidak terjadi).
+
+#### FR-7c: Perception Tool (`inspect_screen`)
+
+- Tool baru `inspect_screen` pada skema OpenAI `cli::openai_tools_schema()` (ke-11):
+  ```json
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect_screen",
+      "description": "Mengambil frame gambar layar desktop aktif saat ini langsung dari memori untuk persepsi visual.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "reason": {"type": "string", "description": "Tujuan/alasan memeriksa layar desktop saat ini."},
+          "detail_level": {"type": "string", "enum": ["low","high"], "description": "low=768px high=1024px (default high)"}
+        }
+      }
+    }
+  }
+  ```
+- Mapping: `core::ToolName::InspectScreen`, params `InspectScreenParams { reason: Option<String>, detail_level: Option<String> }`, validasi: `detail_level` bila ada harus `low`/`high`/`auto` (case-insensitive); `reason` bebas.
+- Config: `[tools] inspect_screen = true` (default true) — `dispatcher::check_whitelist` hanya cek `enabled` (tidak ada path/command), Full Access bypass.
+- Handler: `dispatcher::handle_inspect_screen(call) -> Result<String,_>` — panggil `heraldvis_vision::ScreenPerception::capture_frame_in_memory(max_dim)` (`high`→1024, `low`→768), kembalikan string ringkas + Data URL (ukuran byte base64) — contoh `"inspect_screen: captured 82341 bytes as data:image/jpeg;base64,..."` — log via `tracing::debug!` panjang Data URL; **tidak** tulis berkas apa pun. Mock tetap Data URL JPEG synthetic bila headless.
+- Semua pendaftaran wajib: `core::ToolName` + `Display` + `ToolCall::validate`, `config::ToolsConfig` + `config.example.toml`, `dispatcher::{check_whitelist,dispatch}`, `cli::openai_tools_schema` + mapping 11 varian di `run_chat_turn`, serta unit test tanpa disk I/O.
+
 ### FR-5b: Automated Standalone Binary Release via CI/CD
 - Menyediakan alur build otomatis di GitHub Actions yang mengompilasi binary rilis Ubuntu x86_64 (`target/release/heraldvis`), mengemasnya bersama `config.example.toml`, dan mempublikasikannya ke GitHub Releases saat tag versi dibuat (misal `v0.1.0`) atau via pemicu manual (`workflow_dispatch`).
 - Workflow file: `.github/workflows/release.yml` — trigger `on: push: tags: ['v*']` + `workflow_dispatch`, job `ubuntu-latest`, steps: `actions/checkout@v4` → pasang Rust `stable` → `sudo apt-get update && sudo apt-get install -y libasound2-dev` → `cargo build --release --locked` → packaging `heraldvis-linux-x86_64` dir → `tar -czvf heraldvis-linux-x86_64.tar.gz` → publish via `softprops/action-gh-release@v2`.

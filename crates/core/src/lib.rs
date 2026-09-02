@@ -37,6 +37,7 @@ pub enum ToolName {
     PressKey,
     TypeText,
     TakeScreenshot,
+    InspectScreen,
 }
 
 /// Wrapper native Qwen3.8 chat template:
@@ -129,6 +130,14 @@ pub struct TakeScreenshotParams {
     pub path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InspectScreenParams {
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub detail_level: Option<String>,
+}
+
 impl std::fmt::Display for ToolName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -143,6 +152,7 @@ impl std::fmt::Display for ToolName {
             Self::PressKey => "press_key",
             Self::TypeText => "type_text",
             Self::TakeScreenshot => "take_screenshot",
+            Self::InspectScreen => "inspect_screen",
         };
         write!(f, "{s}")
     }
@@ -247,6 +257,18 @@ impl ToolCall {
                 }
                 if !p.path.to_ascii_lowercase().ends_with(".png") {
                     return Err(CoreError::Validation("path must end with .png".into()));
+                }
+            }
+            ToolName::InspectScreen => {
+                let p: InspectScreenParams = serde_json::from_value(self.arguments.clone())
+                    .map_err(|e| CoreError::Validation(e.to_string()))?;
+                if let Some(dl) = p.detail_level {
+                    let d = dl.trim().to_ascii_lowercase();
+                    if !d.is_empty() && d != "low" && d != "high" && d != "auto" {
+                        return Err(CoreError::Validation(
+                            "detail_level must be low, high or auto".into(),
+                        ));
+                    }
                 }
             }
         }
